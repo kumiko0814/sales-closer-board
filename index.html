@@ -546,8 +546,9 @@ async function postToSlack(cid,row){
     meetings:row.meetings, instant:row.instant_close, closed:row.closed,
     pipeline:pipeTxt, note:row.note||'', slack_id:c?c.slack_id:'' };
   try{
-    // GASのCORS制約を避けるため text/plain + no-cors 相当（GAS側で JSON.parse）
-    await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload)});
+    // GAS Web App はクロスオリジンで302リダイレクトを返すため no-cors で fire-and-forget
+    // （text/plain＝プリフライト不要の単純リクエスト。GAS側で JSON.parse）
+    await fetch(url,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload)});
     return true;
   }catch(e){ return e.message||'network'; }
 }
