@@ -531,7 +531,7 @@ function renderAppointments(cid){
   let h='<div class="card"><h3><span class="bar"></span>面談予定（プロライン予約）</h3>'
    +'<div class="sec-sub">プロラインの予約通知から自動取込（2時間ごと更新）。今日の予定 '+todayN+'件。キャンセルは薄く表示。</div>';
   if(!list.length){ return h+'<div class="empty">今日以降の予約はありません。</div></div>'; }
-  h+='<div class="scroll"><table class="tbl"><thead><tr><th class="name">日</th><th>時間</th><th class="name">アライアンス</th><th class="name">予約者</th>'+(cid?'':'<th class="name">担当</th>')+'<th class="name">状態</th></tr></thead><tbody>';
+  h+='<div class="scroll"><table class="tbl"><thead><tr><th class="name">日</th><th>時間</th><th class="name">アライアンス</th><th class="name">予約者</th>'+(cid?'':'<th class="name">担当</th>')+'<th class="name">状態</th><th>プロライン</th></tr></thead><tbody>';
   list.forEach(a=>{ const c=closers.find(x=>x.id===a.closer_id); const cancel=a.status==='キャンセル';
     const sk=cancel?'r':(a.status==='実施'?'n':'g');
     h+='<tr style="'+(cancel?'opacity:.55':'')+'"><td class="name">'+apDayLabel(a.start_at)+'</td>'
@@ -539,7 +539,8 @@ function renderAppointments(cid){
      +'<td class="name">'+allianceCell({alliance:a.alliance})+'</td>'
      +'<td class="name">'+esc(a.customer)+'</td>'
      +(cid?'':'<td class="name">'+esc(c?c.name:(a.closer_id||'—'))+'</td>')
-     +'<td style="text-align:left"><span class="pill '+sk+'">'+esc(a.status)+'</span></td></tr>';
+     +'<td style="text-align:left"><span class="pill '+sk+'">'+esc(a.status)+'</span></td>'
+     +'<td style="text-align:center">'+prolineCell({proline_url:a.proline_url})+'</td></tr>';
   });
   return h+'</tbody></table></div></div>';
 }
