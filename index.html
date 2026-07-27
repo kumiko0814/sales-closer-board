@@ -223,7 +223,9 @@ header .wrap{padding-bottom:0;display:flex;align-items:center;gap:14px;flex-wrap
 // 初期化
 // ============================================================
 let sb=null, currentEmail='', myRole='closer';
-const STATUS_LIST=['口頭合意〜入金前','ローン申請中','日程調整中','面談後〜判断前','入金完了','辞退'];
+const STATUS_LIST=['即決','口頭合意〜入金前','ローン申請中','検討','面談後〜判断前','日程調整中','入金完了','失注','辞退'];
+const CLOSED_STATUS=['即決','入金完了','失注','辞退']; // 追客リストから外れる（決着済み）
+function isOpenDeal(d){ return CLOSED_STATUS.indexOf(d.status)===-1; }
 const PIPE=[
   ['p_before','面談前'],['p_after','面談後〜判断前'],['p_verbal','口頭合意〜入金前'],
   ['p_loan','ローン申請中'],['p_sched','日程調整中'],['p_resched','リスケ'],['p_cooloff','クーリングオフ対応中']
@@ -350,7 +352,7 @@ function sumField(rows,f){ return rows.reduce((a,r)=>a+n(r[f]),0); }
 function openDeals(cid){ return deals.filter(d=>d.closer_id===(cid||d.closer_id) && d.status!=='入金完了' && d.status!=='辞退' && (!cid||d.closer_id===cid)); }
 
 function closerStats(cid){
-  const od=deals.filter(d=>d.closer_id===cid && d.status!=='入金完了' && d.status!=='辞退');
+  const od=deals.filter(d=>d.closer_id===cid && isOpenDeal(d));
   const m=mstats[cid];
   if(m){ // シート自動連携（優先）
     const target=n(m.target_deals)||n(targets[cid]);
@@ -458,7 +460,7 @@ function renderSummary(){
   });
   h+='</tbody></table></div></div>';
   // 口頭合意 進捗一覧
-  const od=deals.filter(d=>d.status!=='入金完了'&&d.status!=='辞退')
+  const od=deals.filter(isOpenDeal)
     .sort((a,b)=>(a.deal_date||'9')<(b.deal_date||'9')?-1:1);
   h+='<div class="card"><h3><span class="bar"></span>口頭合意〜入金前の進捗（追客リスト）</h3>'
    +'<div class="sec-sub">各クローザーが個別に登録・後追いしている案件。入金完了/辞退で自動的にこの一覧から外れます。</div>';
@@ -580,8 +582,8 @@ function renderCloser(cid){
 
   // 口頭合意 個別案件マネージャ（追加は編集可の人だけ）
   const my=deals.filter(d=>d.closer_id===cid).sort((a,b)=>(a.deal_date||'9')<(b.deal_date||'9')?-1:1);
-  h+='<div class="card"><h3><span class="bar"></span>口頭合意など 個別案件（追客リスト）</h3>'
-   +'<div class="sec-sub">入金前の案件を1件ずつ登録して後追い。ステータスを「入金完了／辞退」にすると一覧から外れます。</div>';
+  h+='<div class="card"><h3><span class="bar"></span>面談報告を入力（→ 追客リスト＋Slackに自動反映）</h3>'
+   +'<div class="sec-sub">面談が終わったら、結果とプロLINEリンクをここに入力して「追加」。① この追客リストに載る　② マーケ07_プロライン運営の面談報告スレへ自動投稿されます（Slackへの手打ち不要）。ステータスを「入金完了／辞退」にすると追客リストから外れます。</div>';
   if(editable){
     const EF=' onfocus="editing=true" onblur="editing=false"';
     h+='<div class="deals-row" style="grid-template-columns:0.8fr 1fr 105px 140px 1fr 1fr auto">'
@@ -596,7 +598,7 @@ function renderCloser(cid){
   }
   if(my.length){
     h+='<div class="scroll"><table class="tbl"><thead><tr><th class="name">アライアンス</th><th class="name">顧客</th><th>合意日</th><th class="name">ステータス</th><th>プロライン</th><th class="name">メモ</th>'+(editable?'<th></th>':'')+'</tr></thead><tbody>';
-    my.forEach(d=>{ const done=d.status==='入金完了'||d.status==='辞退';
+    my.forEach(d=>{ const done=!isOpenDeal(d);
       h+='<tr style="'+(done?'opacity:.5':'')+'"><td class="name">'+allianceCell(d)+'</td><td class="name">'+esc(d.customer)+'</td><td>'+fmtMD(d.deal_date)+'</td>';
       if(editable){
         h+='<td style="text-align:left"><select onchange="setDealStatus(\''+d.id+'\',this.value)" style="font-size:12px;padding:4px 6px;border-radius:6px;border:1px solid #d5e0ee">'
@@ -696,8 +698,13 @@ async function addDeal(cid){
     status:document.getElementById('dl_status').value, memo:gv('dl_memo'),
     proline_url:gv('dl_proline'), alliance:gv('dl_alliance') };
   const {error}=await sb.from('sc_deals').insert(row);
-  if(!error){ editing=false; ['dl_cust','dl_memo','dl_proline','dl_alliance'].forEach(id=>{const e=document.getElementById(id); if(e)e.value='';}); await loadAll(); }
-  else { alert('保存エラー：'+error.message); }
+  if(error){ alert('保存エラー：'+error.message); return; }
+  editing=false;
+  // ② マーケ07_プロライン運営の面談報告スレへ自動投稿
+  const c=closers.find(x=>x.id===cid)||{};
+  postSlackTo(meetingReportText(row, c.name), c.slack_id||'', 'C0AMCR2SH2Q', '面談後全体報告');
+  ['dl_cust','dl_memo','dl_proline','dl_alliance'].forEach(id=>{const e=document.getElementById(id); if(e)e.value='';});
+  await loadAll();
 }
 async function setDealStatus(id,status){ const d=deals.find(x=>x.id===id); if(d&&!canEdit(d.closer_id)) return; await sb.from('sc_deals').update({status,updated_at:new Date().toISOString()}).eq('id',id); await loadAll(); }
 async function delDeal(id){ const d=deals.find(x=>x.id===id); if(d&&!canEdit(d.closer_id)) return; if(!confirm('この案件を削除しますか？')) return; await sb.from('sc_deals').delete().eq('id',id); await loadAll(); }
@@ -738,6 +745,22 @@ async function postSlackText(text, slackId){
   try{ await fetch(url,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},
     body:JSON.stringify({text:text, slack_id:slackId||''})}); return true; }
   catch(e){ return e.message||'network'; }
+}
+// チャンネル指定でSlackへ（面談報告＝マーケ07 等）
+async function postSlackTo(text, slackId, channel, reminderKey){
+  const url=SUPABASE_CONFIG.slackRelayUrl; if(!url) return 'off';
+  try{ await fetch(url,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body:JSON.stringify({text:text, slack_id:slackId||'', channel:channel, reminder_key:reminderKey})}); return true; }
+  catch(e){ return e.message||'network'; }
+}
+// 面談報告テキスト（クローザーの投稿トーンに寄せる）
+function meetingReportText(row, closerName){
+  const A={ 'ABCash':'A','famm':'F','SHE':'S' }; const pre=A[row.alliance]||'';
+  let t='【面談報告】'+(pre?pre+'：':'')+row.customer+'さん'+(row.alliance?'（'+row.alliance+'）':'')+(closerName?'／担当：'+closerName:'')+'\n'
+    +'結果：'+row.status;
+  if(row.memo) t+='\n'+row.memo;
+  if(row.proline_url) t+='\n'+row.proline_url;
+  return t;
 }
 async function reportMonthly(cid){
   if(!canEdit(cid)) return;
