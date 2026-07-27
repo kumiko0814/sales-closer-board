@@ -188,18 +188,19 @@ header .wrap{padding-bottom:0;display:flex;align-items:center;gap:14px;flex-wrap
       <li>ログインすると、自動で<b>自分の名前のタブ</b>が開きます（<span class="tag-me">あなた</span>マーク付き）</li>
     </ol>
 
-    <h3>■ 報告のしかた（毎日の稼働後）</h3>
+    <h3>★ 面談が終わったら（いちばん大事）</h3>
     <ol>
-      <li>自分のタブの「<b>本日の報告を入力</b>」で、その日の <b>面談数／即決数／成約数</b> を入れる</li>
-      <li>続けて「<b>現在のパイプライン</b>」に、今かかえている件数（面談前・口頭合意〜入金前・リスケ 等）を入れる</li>
-      <li>「<b>報告を送信</b>」を押す → 集計に即反映＋<b>マーケ03の当日リマインダーのスレッドへ自動投稿</b></li>
-      <li>同じ日に送り直すと<b>上書き</b>されます（間違えても直せます）</li>
+      <li>自分のタブの「<b>面談予定</b>」を見る。面談が終わった予約は自動で<b>「終了・結果待ち」</b>になります</li>
+      <li>その行の右にある「<b>結果を入力</b>」を押す → 下の「面談報告を入力」に <b>顧客名・アライアンス・プロラインリンク</b>が自動で入ります</li>
+      <li><b>結果（ステータス）</b>を選び、必要ならメモを書いて「<b>追加</b>」を押す</li>
+      <li>これだけで → ① 追客リストに載る　② <b>マーケ07_プロライン運営の面談報告スレへ自動投稿</b>（Slackに手で書く必要なし）</li>
+      <li>結果が変わったら「<b>結果を入力</b>」から入れ直しでOK。「入金完了／辞退」にすると追客リストから自動で外れます</li>
     </ol>
 
-    <h3>■ 口頭合意など個別案件の追客</h3>
+    <h3>■ 数値の報告（マーケ03）</h3>
     <ul>
-      <li>「口頭合意など 個別案件」で、入金前のお客様を1件ずつ登録 → 後追い</li>
-      <li>「入金完了／辞退」に変えると、追客リストから自動で外れます</li>
+      <li>面談数・成約数などの数字は<b>セールス管理シートから自動反映</b>されます（手入力不要）</li>
+      <li>自分のタブの「<b>マーケ03へ報告</b>」ボタンで、当月の数値報告をマーケ03スレへ自動投稿できます</li>
     </ul>
 
     <h3>■ 見方（集計タブ）</h3>
@@ -430,10 +431,10 @@ function renderSummary(){
   const s=teamStats();
   let h='';
   // はじめての方へ（使い方への入口）
-  h+='<div class="help-card"><h4>はじめての方へ ── 使い方（かんたん3ステップ）</h4>'
+  h+='<div class="help-card"><h4>はじめての方へ ── 面談が終わったらやること（3ステップ）</h4>'
    +'<ol><li>上のタブで<b>自分の名前</b>（<span class="tag-me">あなた</span>）を開く</li>'
-   +'<li>「本日の報告を入力」に、その日の<b>面談・即決・成約</b>と<b>今のパイプライン</b>を入れて<b>送信</b></li>'
-   +'<li>送信すると、この集計に反映＋<b>マーケ03のスレッドへ自動投稿</b>（シートやSlackへの二重入力は不要）</li></ol>'
+   +'<li>「<b>面談予定</b>」で、終わった面談の右にある「<b>結果を入力</b>」を押す（顧客名・アライアンス・プロラインリンクが自動で入ります）</li>'
+   +'<li><b>結果（ステータス）とメモ</b>を選んで「<b>追加</b>」→ 追客リストと<b>マーケ07の面談報告スレへ自動反映</b>（Slackへの手打ち不要）</li></ol>'
    +'<div class="more"><button class="btn line sm" onclick="openHelp()">くわしい使い方・見方をひらく</button></div></div>';
   // チームKPI
   h+='<div class="card"><h3><span class="bar"></span>チーム全体　<span class="muted">（'+curYM()+'）</span>'+(hasSync()?'　'+syncBadge():'')+'</h3>'
@@ -523,24 +524,40 @@ function apDayLabel(iso){ const d=new Date(iso), t=new Date(); t.setHours(0,0,0,
   const diff=Math.round((dd-t)/86400000); const w=['日','月','火','水','木','金','土'][d.getDay()];
   return diff===0?'今日':diff===1?'明日':(d.getMonth()+1)+'/'+d.getDate()+'('+w+')'; }
 function apTime(iso){ const d=new Date(iso); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
+// 「結果を入力」→ 面談報告フォームに予約者・アライアンス・リンクを自動入力してスクロール
+function fillReportFromAppt(custEnc, alliance, urlEnc){
+  const cust=decodeURIComponent(custEnc||''), url=decodeURIComponent(urlEnc||'');
+  const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.value=v; };
+  set('dl_cust',cust); set('dl_alliance',alliance||''); set('dl_proline',url);
+  editing=true;
+  const card=document.getElementById('reportCard'); if(card) card.scrollIntoView({behavior:'smooth',block:'start'});
+  setTimeout(()=>{ const s=document.getElementById('dl_status'); if(s) s.focus(); }, 400);
+}
 function renderAppointments(cid){
   let list=(appts||[]).filter(a=>a.start_at && closers.some(c=>c.id===a.closer_id)); // ロスター内のみ
   if(cid) list=list.filter(a=>a.closer_id===cid);
   list=list.sort((a,b)=> a.start_at<b.start_at?-1:1);
   const todayN=list.filter(a=>apDayLabel(a.start_at)==='今日' && a.status!=='キャンセル').length;
   let h='<div class="card"><h3><span class="bar"></span>面談予定（プロライン予約）</h3>'
-   +'<div class="sec-sub">プロラインの予約通知から自動取込（2時間ごと更新）。今日の予定 '+todayN+'件。キャンセルは薄く表示。</div>';
+   +'<div class="sec-sub">プロラインの予約通知から自動取込（2時間ごと更新）。今日の予定 '+todayN+'件。'
+   +(cid?'<b>面談が終わると自動で「終了・結果待ち」になります。右の「結果を入力」を押すと、下の面談報告フォームに顧客名・アライアンス・リンクが自動で入るので、結果とメモを選んで「追加」するだけです。</b>':'キャンセルは薄く表示。')+'</div>';
   if(!list.length){ return h+'<div class="empty">今日以降の予約はありません。</div></div>'; }
-  h+='<div class="scroll"><table class="tbl"><thead><tr><th class="name">日</th><th>時間</th><th class="name">アライアンス</th><th class="name">予約者</th>'+(cid?'':'<th class="name">担当</th>')+'<th class="name">状態</th><th>プロライン</th></tr></thead><tbody>';
+  const canInput = cid && canEdit(cid);
+  h+='<div class="scroll"><table class="tbl"><thead><tr><th class="name">日</th><th>時間</th><th class="name">アライアンス</th><th class="name">予約者</th>'+(cid?'':'<th class="name">担当</th>')+'<th class="name">状態</th><th>プロライン</th>'+(canInput?'<th>面談結果</th>':'')+'</tr></thead><tbody>';
+  const now=Date.now();
   list.forEach(a=>{ const c=closers.find(x=>x.id===a.closer_id); const cancel=a.status==='キャンセル';
-    const sk=cancel?'r':(a.status==='実施'?'n':'g');
+    const ended = a.status==='予約' && a.end_at && new Date(a.end_at).getTime()<now; // 時間が過ぎた予約＝終了・結果待ち
+    const stLabel = cancel?'キャンセル':(a.status==='実施'||ended?'終了・結果待ち':a.status);
+    const sk = cancel?'r':(a.status==='実施'||ended?'y':'g');
     h+='<tr style="'+(cancel?'opacity:.55':'')+'"><td class="name">'+apDayLabel(a.start_at)+'</td>'
      +'<td>'+apTime(a.start_at)+(a.end_at?'〜'+apTime(a.end_at):'')+'</td>'
      +'<td class="name">'+allianceCell({alliance:a.alliance})+'</td>'
      +'<td class="name">'+esc(a.customer)+'</td>'
      +(cid?'':'<td class="name">'+esc(c?c.name:(a.closer_id||'—'))+'</td>')
-     +'<td style="text-align:left"><span class="pill '+sk+'">'+esc(a.status)+'</span></td>'
-     +'<td style="text-align:center">'+prolineCell({proline_url:a.proline_url})+'</td></tr>';
+     +'<td style="text-align:left"><span class="pill '+sk+'">'+esc(stLabel)+'</span></td>'
+     +'<td style="text-align:center">'+prolineCell({proline_url:a.proline_url})+'</td>'
+     +(canInput?'<td style="text-align:center">'+(cancel?'<span class="muted">—</span>':'<button class="btn pink sm" onclick="fillReportFromAppt(\''+encodeURIComponent(a.customer||'')+'\',\''+esc(a.alliance||'')+'\',\''+encodeURIComponent(a.proline_url||'')+'\')">結果を入力</button>')+'</td>':'')
+     +'</tr>';
   });
   return h+'</tbody></table></div></div>';
 }
@@ -620,8 +637,8 @@ function renderCloser(cid){
 
   // 口頭合意 個別案件マネージャ（追加は編集可の人だけ）
   const my=deals.filter(d=>d.closer_id===cid).sort((a,b)=>(a.deal_date||'9')<(b.deal_date||'9')?-1:1);
-  h+='<div class="card"><h3><span class="bar"></span>面談報告を入力（→ 追客リスト＋Slackに自動反映）</h3>'
-   +'<div class="sec-sub">面談が終わったら、結果とプロLINEリンクをここに入力して「追加」。① この追客リストに載る　② マーケ07_プロライン運営の面談報告スレへ自動投稿されます（Slackへの手打ち不要）。ステータスを「入金完了／辞退」にすると追客リストから外れます。</div>';
+  h+='<div class="card" id="reportCard"><h3><span class="bar"></span>面談報告を入力（→ 追客リスト＋Slackに自動反映）</h3>'
+   +'<div class="sec-sub"><b>面談が終わったら、ここに結果を入力して「追加」を押すだけ。</b>上の「本日の面談」から「結果を入力」を押すと、顧客名・アライアンス・プロラインリンクが自動で入ります。あとは<b>結果（ステータス）</b>とメモを選んで「追加」。→ ①この追客リストに載る　②マーケ07_プロライン運営の面談報告スレへ自動投稿（Slack手打ち不要）。「入金完了／辞退」にすると追客リストから外れます。</div>';
   if(editable){
     const EF=' onfocus="editing=true" onblur="editing=false"';
     h+='<div class="deals-row" style="grid-template-columns:0.8fr 1fr 105px 140px 1fr 1fr auto">'
