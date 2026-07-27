@@ -300,7 +300,9 @@ async function loadAll(){
       sb.from('sc_reports').select('*').gte('report_date',curYM()+'-01').order('report_date',{ascending:false}),
       sb.from('sc_deals').select('*').order('deal_date',{ascending:true})
     ]);
-    closers=c.data||[]; reports=r.data||[]; deals=d.data||[];
+    closers=c.data||[]; reports=r.data||[];
+    // 重複除去（同一 担当×顧客×リンク の二重登録を1件に）
+    { const seen=new Set(); deals=(d.data||[]).filter(x=>{ const k=(x.closer_id||'')+'|'+(x.customer||'')+'|'+(x.proline_url||''); if(seen.has(k)) return false; seen.add(k); return true; }); }
     targets={}; (t.data||[]).forEach(x=>targets[x.closer_id]=x.target_deals);
     // シート自動連携（sc_month_stats / sc_sync_meta）※テーブル未作成でもエラーにしない
     mstats={}; syncMeta=null;
@@ -462,10 +464,10 @@ function renderSummary(){
    +'<div class="sec-sub">各クローザーが個別に登録・後追いしている案件。入金完了/辞退で自動的にこの一覧から外れます。</div>';
   if(!od.length) h+='<div class="empty">追客中の個別案件はありません。</div>';
   else{
-    h+='<div class="scroll"><table class="tbl"><thead><tr><th class="name">顧客</th><th class="name">担当</th><th>合意日</th><th class="name">ステータス</th><th>プロライン</th><th class="name">メモ</th></tr></thead><tbody>';
+    h+='<div class="scroll"><table class="tbl"><thead><tr><th class="name">アライアンス</th><th class="name">顧客</th><th class="name">担当</th><th>合意日</th><th class="name">ステータス</th><th>プロライン</th><th class="name">メモ</th></tr></thead><tbody>';
     od.forEach(d=>{ const c=closers.find(x=>x.id===d.closer_id);
       const sk=d.status==='ローン申請中'?'y':'g';
-      h+='<tr><td class="name">'+esc(d.customer)+'</td><td class="name">'+esc(c?c.name:d.closer_id)+'</td>'
+      h+='<tr><td class="name">'+allianceCell(d)+'</td><td class="name">'+esc(d.customer)+'</td><td class="name">'+esc(c?c.name:d.closer_id)+'</td>'
        +'<td>'+fmtMD(d.deal_date)+'</td><td style="text-align:left"><span class="pill '+sk+'">'+esc(d.status)+'</span></td>'
        +'<td style="text-align:center">'+prolineCell(d)+'</td>'
        +'<td class="name" style="white-space:normal;color:var(--sub)">'+esc(d.memo||'')+'</td></tr>';
@@ -505,6 +507,12 @@ function prolineCell(d){
   if(d && d.proline_url) return '<a href="'+esc(d.proline_url)+'" target="_blank" rel="noopener" class="btn pink sm" style="text-decoration:none;white-space:nowrap;padding:4px 11px">プロライン↗</a>';
   return '<span class="muted">—</span>';
 }
+// アライアンス名（顧客の左に表示）
+function allianceCell(d){
+  const a=(d&&d.alliance||'').trim();
+  if(!a) return '<span class="muted">—</span>';
+  return '<span class="pill n" style="background:#eef2fb;color:var(--navy2);font-weight:700">'+esc(a)+'</span>';
+}
 function kpiPink(l,v,sub){ return '<div class="kpi pink"><div class="lbl">'+l+'</div><div class="val">'+v+'</div><div class="sub">'+(sub||'')+'</div></div>'; }
 
 function renderCloser(cid){
@@ -541,7 +549,7 @@ function renderCloser(cid){
      +'<div class="card" style="background:#f7fafd;box-shadow:none;margin:0 0 12px">'
      +'<div style="font-size:13.5px;line-height:1.9;white-space:pre-wrap" id="rpPreview">'+esc(monthlyReportText(cid))+'</div></div>'
      +'<div class="grp">ひとことネクストアクション（任意）</div>'
-     +'<div class="fld"><textarea id="rp_note2" rows="2" placeholder="口頭合意◯◯さん明日入金予定 など（空欄でもOK）" oninput="document.getElementById(\'rpPreview\').textContent=monthlyReportText(\''+cid+'\',this.value)"></textarea></div>'
+     +'<div class="fld"><textarea id="rp_note2" rows="2" placeholder="口頭合意◯◯さん明日入金予定 など（空欄でもOK）" onfocus="editing=true" onblur="editing=false" oninput="document.getElementById(\'rpPreview\').textContent=monthlyReportText(\''+cid+'\',this.value)"></textarea></div>'
      +'<div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">'
      +'<button class="btn" id="rpBtn2" onclick="reportMonthly(\''+cid+'\')">この内容でマーケ03に報告</button>'
      +'<span class="muted">※数字の修正はセールス管理シート側で。1時間ごとに自動反映されます。</span></div>'
@@ -575,19 +583,21 @@ function renderCloser(cid){
   h+='<div class="card"><h3><span class="bar"></span>口頭合意など 個別案件（追客リスト）</h3>'
    +'<div class="sec-sub">入金前の案件を1件ずつ登録して後追い。ステータスを「入金完了／辞退」にすると一覧から外れます。</div>';
   if(editable){
-    h+='<div class="deals-row">'
-     +'<div class="fld"><label>顧客名</label><input id="dl_cust" placeholder="◯◯さん"></div>'
-     +'<div class="fld"><label>合意日</label><input id="dl_date" type="date" value="'+todayStr()+'"></div>'
-     +'<div class="fld"><label>ステータス</label><select id="dl_status">'+STATUS_LIST.map(s=>'<option>'+s+'</option>').join('')+'</select></div>'
-     +'<div class="fld"><label>プロラインURL（任意）</label><input id="dl_proline" placeholder="https://autosns.jp/chat#/room/..."></div>'
-     +'<div class="fld"><label>メモ</label><input id="dl_memo" placeholder="ローン審査待ち 等"></div>'
+    const EF=' onfocus="editing=true" onblur="editing=false"';
+    h+='<div class="deals-row" style="grid-template-columns:0.8fr 1fr 105px 140px 1fr 1fr auto">'
+     +'<div class="fld"><label>アライアンス</label><input id="dl_alliance" placeholder="ABCash 等"'+EF+'></div>'
+     +'<div class="fld"><label>顧客名</label><input id="dl_cust" placeholder="◯◯さん"'+EF+'></div>'
+     +'<div class="fld"><label>合意日</label><input id="dl_date" type="date" value="'+todayStr()+'"'+EF+'></div>'
+     +'<div class="fld"><label>ステータス</label><select id="dl_status"'+EF+'>'+STATUS_LIST.map(s=>'<option>'+s+'</option>').join('')+'</select></div>'
+     +'<div class="fld"><label>プロラインURL（任意）</label><input id="dl_proline" placeholder="https://..../pgc/chat/..."'+EF+'></div>'
+     +'<div class="fld"><label>メモ</label><input id="dl_memo" placeholder="ローン審査待ち 等"'+EF+'></div>'
      +'<div class="fld"><label>&nbsp;</label><button class="btn pink sm" onclick="addDeal(\''+cid+'\')">追加</button></div>'
      +'</div>';
   }
   if(my.length){
-    h+='<div class="scroll"><table class="tbl"><thead><tr><th class="name">顧客</th><th>合意日</th><th class="name">ステータス</th><th>プロライン</th><th class="name">メモ</th>'+(editable?'<th></th>':'')+'</tr></thead><tbody>';
+    h+='<div class="scroll"><table class="tbl"><thead><tr><th class="name">アライアンス</th><th class="name">顧客</th><th>合意日</th><th class="name">ステータス</th><th>プロライン</th><th class="name">メモ</th>'+(editable?'<th></th>':'')+'</tr></thead><tbody>';
     my.forEach(d=>{ const done=d.status==='入金完了'||d.status==='辞退';
-      h+='<tr style="'+(done?'opacity:.5':'')+'"><td class="name">'+esc(d.customer)+'</td><td>'+fmtMD(d.deal_date)+'</td>';
+      h+='<tr style="'+(done?'opacity:.5':'')+'"><td class="name">'+allianceCell(d)+'</td><td class="name">'+esc(d.customer)+'</td><td>'+fmtMD(d.deal_date)+'</td>';
       if(editable){
         h+='<td style="text-align:left"><select onchange="setDealStatus(\''+d.id+'\',this.value)" style="font-size:12px;padding:4px 6px;border-radius:6px;border:1px solid #d5e0ee">'
          +STATUS_LIST.map(s=>'<option'+(s===d.status?' selected':'')+'>'+s+'</option>').join('')+'</select></td>'
@@ -681,11 +691,13 @@ async function setTarget(cid){
 async function addDeal(cid){
   if(!canEdit(cid)) return;
   const cust=(document.getElementById('dl_cust').value||'').trim(); if(!cust){ return; }
+  const gv=id=>{ const e=document.getElementById(id); return e?(e.value||'').trim():''; };
   const row={ closer_id:cid, customer:cust, deal_date:document.getElementById('dl_date').value||null,
-    status:document.getElementById('dl_status').value, memo:(document.getElementById('dl_memo').value||'').trim(),
-    proline_url:(document.getElementById('dl_proline').value||'').trim() };
+    status:document.getElementById('dl_status').value, memo:gv('dl_memo'),
+    proline_url:gv('dl_proline'), alliance:gv('dl_alliance') };
   const {error}=await sb.from('sc_deals').insert(row);
-  if(!error){ document.getElementById('dl_cust').value=''; document.getElementById('dl_memo').value=''; const pe=document.getElementById('dl_proline'); if(pe) pe.value=''; await loadAll(); }
+  if(!error){ editing=false; ['dl_cust','dl_memo','dl_proline','dl_alliance'].forEach(id=>{const e=document.getElementById(id); if(e)e.value='';}); await loadAll(); }
+  else { alert('保存エラー：'+error.message); }
 }
 async function setDealStatus(id,status){ const d=deals.find(x=>x.id===id); if(d&&!canEdit(d.closer_id)) return; await sb.from('sc_deals').update({status,updated_at:new Date().toISOString()}).eq('id',id); await loadAll(); }
 async function delDeal(id){ const d=deals.find(x=>x.id===id); if(d&&!canEdit(d.closer_id)) return; if(!confirm('この案件を削除しますか？')) return; await sb.from('sc_deals').delete().eq('id',id); await loadAll(); }
