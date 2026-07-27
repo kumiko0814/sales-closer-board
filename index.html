@@ -524,7 +524,7 @@ function apDayLabel(iso){ const d=new Date(iso), t=new Date(); t.setHours(0,0,0,
   return diff===0?'今日':diff===1?'明日':(d.getMonth()+1)+'/'+d.getDate()+'('+w+')'; }
 function apTime(iso){ const d=new Date(iso); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
 function renderAppointments(cid){
-  let list=(appts||[]).filter(a=>a.start_at);
+  let list=(appts||[]).filter(a=>a.start_at && closers.some(c=>c.id===a.closer_id)); // ロスター内のみ
   if(cid) list=list.filter(a=>a.closer_id===cid);
   list=list.sort((a,b)=> a.start_at<b.start_at?-1:1);
   const todayN=list.filter(a=>apDayLabel(a.start_at)==='今日' && a.status!=='キャンセル').length;
