@@ -230,7 +230,7 @@ const PIPE=[
   ['p_before','面談前'],['p_after','面談後〜判断前'],['p_verbal','口頭合意〜入金前'],
   ['p_loan','ローン申請中'],['p_sched','日程調整中'],['p_resched','リスケ'],['p_cooloff','クーリングオフ対応中']
 ];
-let closers=[], targets={}, reports=[], deals=[], mstats={}, syncMeta=null;
+let closers=[], targets={}, reports=[], deals=[], mstats={}, syncMeta=null, appts=[];
 function hasSync(){ return Object.keys(mstats).length>0; }
 function syncBadge(){
   if(!hasSync()) return '';
@@ -316,6 +316,13 @@ async function loadAll(){
       (ms&&ms.data||[]).forEach(x=>mstats[x.closer_id]=x);
       syncMeta=mt&&mt.data||null;
     }catch(e){ /* 自動連携テーブル未導入 */ }
+    // プロライン面談予約（今日0:00以降）※テーブル未作成でもエラーにしない
+    appts=[];
+    try{
+      const t0=new Date(); t0.setHours(0,0,0,0);
+      const ap=await sb.from('sc_appointments').select('*').gte('start_at',t0.toISOString()).order('start_at');
+      appts=ap&&ap.data||[];
+    }catch(e){ /* 予約テーブル未導入 */ }
     setConn(true,'接続OK・'+curYM());
     render();
   }catch(e){ setConn(false,'読込エラー'); console.error(e); }
@@ -438,6 +445,8 @@ function renderSummary(){
    +kpi('成約率', s.rate+'<small>%</small>', '即決率 '+s.instRate+'%')
    +kpiPink('口頭合意ストック', s.verbalStock+'<small>件</small>', '追客中の個別案件 '+s.openDealCount+'件')
    +'</div></div>';
+  // 面談予定（プロライン予約・チーム全員）
+  h+=renderAppointments(null);
   // 月間目標の設定パネル（上司=森川・清水のみ表示）
   h+=renderTargetPanel();
   // クローザー別テーブル
@@ -509,6 +518,31 @@ function prolineCell(d){
   if(d && d.proline_url) return '<a href="'+esc(d.proline_url)+'" target="_blank" rel="noopener" class="btn pink sm" style="text-decoration:none;white-space:nowrap;padding:4px 11px">プロライン↗</a>';
   return '<span class="muted">—</span>';
 }
+// 面談予定（プロライン予約）ビュー。cid=null で全員（集計）
+function apDayLabel(iso){ const d=new Date(iso), t=new Date(); t.setHours(0,0,0,0); const dd=new Date(d); dd.setHours(0,0,0,0);
+  const diff=Math.round((dd-t)/86400000); const w=['日','月','火','水','木','金','土'][d.getDay()];
+  return diff===0?'今日':diff===1?'明日':(d.getMonth()+1)+'/'+d.getDate()+'('+w+')'; }
+function apTime(iso){ const d=new Date(iso); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
+function renderAppointments(cid){
+  let list=(appts||[]).filter(a=>a.start_at);
+  if(cid) list=list.filter(a=>a.closer_id===cid);
+  list=list.sort((a,b)=> a.start_at<b.start_at?-1:1);
+  const todayN=list.filter(a=>apDayLabel(a.start_at)==='今日' && a.status!=='キャンセル').length;
+  let h='<div class="card"><h3><span class="bar"></span>面談予定（プロライン予約）</h3>'
+   +'<div class="sec-sub">プロラインの予約通知から自動取込（2時間ごと更新）。今日の予定 '+todayN+'件。キャンセルは薄く表示。</div>';
+  if(!list.length){ return h+'<div class="empty">今日以降の予約はありません。</div></div>'; }
+  h+='<div class="scroll"><table class="tbl"><thead><tr><th class="name">日</th><th>時間</th><th class="name">アライアンス</th><th class="name">予約者</th>'+(cid?'':'<th class="name">担当</th>')+'<th class="name">状態</th></tr></thead><tbody>';
+  list.forEach(a=>{ const c=closers.find(x=>x.id===a.closer_id); const cancel=a.status==='キャンセル';
+    const sk=cancel?'r':(a.status==='実施'?'n':'g');
+    h+='<tr style="'+(cancel?'opacity:.55':'')+'"><td class="name">'+apDayLabel(a.start_at)+'</td>'
+     +'<td>'+apTime(a.start_at)+(a.end_at?'〜'+apTime(a.end_at):'')+'</td>'
+     +'<td class="name">'+allianceCell({alliance:a.alliance})+'</td>'
+     +'<td class="name">'+esc(a.customer)+'</td>'
+     +(cid?'':'<td class="name">'+esc(c?c.name:(a.closer_id||'—'))+'</td>')
+     +'<td style="text-align:left"><span class="pill '+sk+'">'+esc(a.status)+'</span></td></tr>';
+  });
+  return h+'</tbody></table></div></div>';
+}
 // アライアンス名（顧客の左に表示）
 function allianceCell(d){
   const a=(d&&d.alliance||'').trim();
@@ -543,6 +577,9 @@ function renderCloser(cid){
    +kpi('成約率', (st.meetings?st.rate:'—')+'<small>'+(st.meetings?'%':'')+'</small>', '即決率 '+st.instRate+'%')
    +kpiPink('口頭合意残', st.verbalStock+'<small>件</small>', '追客中 '+st.openDealCount+'件')
    +'</div></div>';
+
+  // 面談予定（この人のプロライン予約）
+  h+=renderAppointments(cid);
 
   // 自動連携モード：手入力不要。数字はシートから自動。ワンクリックでマーケ03へ報告
   if(editable && st.auto){
