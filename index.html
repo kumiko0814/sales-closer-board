@@ -330,6 +330,8 @@ function renderSummary(){
    +kpi('成約率', s.rate+'<small>%</small>', '即決率 '+s.instRate+'%')
    +kpiPink('口頭合意ストック', s.verbalStock+'<small>件</small>', '追客中の個別案件 '+s.openDealCount+'件')
    +'</div></div>';
+  // 月間目標の設定パネル（上司=森川・清水のみ表示）
+  h+=renderTargetPanel();
   // クローザー別テーブル
   h+='<div class="card"><h3><span class="bar"></span>クローザー別サマリー</h3>'
    +'<div class="scroll"><table class="tbl"><thead><tr>'
@@ -369,6 +371,25 @@ function renderSummary(){
   return h;
 }
 
+// 上司（owner/exec）用：全クローザーの月間目標を1画面で入力
+function renderTargetPanel(){
+  if(myRole!=='owner' && myRole!=='exec') return '';
+  let h='<div class="card"><h3><span class="bar"></span>月間 成約目標の設定　<span class="muted">（上司用・'+curYM()+'）</span></h3>'
+   +'<div class="sec-sub">森川さん・清水さんが面談で決めた各クローザーの目標をここで入力。保存すると集計と本人のタブに即反映されます。</div>'
+   +'<div class="scroll"><table class="tbl"><thead><tr><th class="name">クローザー</th><th>今月の成約目標（件）</th><th></th></tr></thead><tbody>';
+  closers.forEach(c=>{ h+='<tr><td class="name">'+esc(c.name)+'</td>'
+    +'<td><input id="tgi_'+c.id+'" type="number" min="0" placeholder="—" value="'+(targets[c.id]!=null?targets[c.id]:'')+'" onfocus="editing=true" onblur="editing=false" style="width:96px;text-align:right;padding:7px 9px;border:1px solid #d5e0ee;border-radius:8px;font-family:inherit;font-size:15px"></td>'
+    +'<td><button class="btn sm" onclick="setTargetFrom(\''+c.id+'\')">保存</button></td></tr>'; });
+  h+='</tbody></table></div><div class="msg" id="tgpMsg"></div></div>';
+  return h;
+}
+async function setTargetFrom(cid){
+  const val=n(document.getElementById('tgi_'+cid).value);
+  const {error}=await sb.from('sc_targets').upsert({closer_id:cid,ym:curYM(),target_deals:val,updated_at:new Date().toISOString()},{onConflict:'closer_id,ym'});
+  const m=document.getElementById('tgpMsg');
+  if(error){ m.className='msg err'; m.textContent='保存エラー：'+error.message; }
+  else { editing=false; m.className='msg ok'; m.textContent=(closers.find(c=>c.id===cid)||{}).name+' の目標を保存しました。'; await loadAll(); }
+}
 function kpiHero(l,v,sub,pct){ pct=Math.min(pct||0,100);
   return '<div class="kpi hero"><div class="lbl">'+l+'</div><div class="val">'+v+'<small>件</small></div>'
     +'<div class="pbar"><i style="width:'+pct+'%"></i></div><div class="sub">'+sub+'</div></div>'; }
