@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex,nofollow">
+<title>Merone セールス クローザー ダッシュボード</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="supabase_config.js"></script>
+<style>
+:root{
+  --navy:#1f3a5f; --navy2:#2b4d78; --blue:#eaf2fb; --blue2:#dceaf9;
+  --pink:#d98a9a; --pink-bg:#fbeef1; --ink:#25303f; --sub:#6b7a8d;
+  --line:#e4ecf5; --card:#ffffff; --ok:#3f9e6a; --warn:#c98a3c; --bad:#c05a5a;
+  --shadow:0 2px 14px rgba(31,58,95,.07);
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:"游ゴシック体","Yu Gothic",YuGothic,"Hiragino Sans","Noto Sans JP",sans-serif;
+  color:var(--ink);background:linear-gradient(180deg,#f4f8fd 0%,#eef4fb 100%);min-height:100vh;-webkit-font-smoothing:antialiased}
+h1,h2,h3,h4{margin:0;font-weight:700}
+a{color:var(--navy2)}
+.wrap{max-width:1180px;margin:0 auto;padding:0 18px 80px}
+
+/* ヘッダー */
+header{background:var(--navy);color:#fff;padding:14px 0 13px;box-shadow:0 2px 10px rgba(0,0,0,.12)}
+header .wrap{padding-bottom:0;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.logo{font-size:19px;letter-spacing:.02em;font-weight:700}
+.logo small{display:block;font-size:11px;color:#b9cbe2;font-weight:400;letter-spacing:.04em;margin-top:2px}
+.hd-right{margin-left:auto;display:flex;align-items:center;gap:12px;font-size:12px;color:#c7d6ea}
+.conn{display:inline-flex;align-items:center;gap:6px}
+.dot{width:8px;height:8px;border-radius:50%;background:#7fd39b;display:inline-block}
+.dot.off{background:#e08a8a}
+.btn-ghost{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.25);
+  padding:5px 11px;border-radius:8px;font-size:12px;cursor:pointer}
+.btn-ghost:hover{background:rgba(255,255,255,.2)}
+
+/* タブ */
+.tabbar{position:sticky;top:0;z-index:30;background:rgba(244,248,253,.94);backdrop-filter:blur(6px);
+  border-bottom:1px solid var(--line);margin-bottom:22px}
+.tabbar .wrap{padding-top:9px;padding-bottom:0;display:flex;gap:6px;overflow-x:auto}
+.tab{flex:0 0 auto;border:none;background:transparent;color:var(--sub);font-weight:700;font-size:14px;
+  padding:11px 15px 12px;border-bottom:3px solid transparent;cursor:pointer;white-space:nowrap;font-family:inherit}
+.tab:hover{color:var(--navy)}
+.tab.active{color:var(--navy);border-bottom-color:var(--pink)}
+.tab.sum{color:var(--navy)}
+.tab.sum .mk{display:inline-block;width:7px;height:7px;border-radius:2px;background:var(--pink);margin-right:6px;vertical-align:middle}
+
+/* カード */
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:18px 20px;margin-bottom:18px}
+.card h3{font-size:15px;color:var(--navy);display:flex;align-items:center;gap:8px;margin-bottom:2px}
+.card h3 .bar{width:4px;height:15px;background:var(--pink);border-radius:3px;display:inline-block}
+.muted{color:var(--sub);font-size:12.5px}
+.sec-sub{color:var(--sub);font-size:12px;margin:2px 0 14px}
+
+/* KPI */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.kpi{background:linear-gradient(180deg,#fff,#f7fbff);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.kpi .lbl{font-size:11.5px;color:var(--sub);font-weight:600;letter-spacing:.02em}
+.kpi .val{font-size:27px;font-weight:800;color:var(--navy);line-height:1.1;margin-top:6px}
+.kpi .val small{font-size:14px;color:var(--sub);font-weight:600;margin-left:2px}
+.kpi .sub{font-size:11.5px;color:var(--sub);margin-top:3px}
+.kpi.hero{background:linear-gradient(135deg,var(--navy),var(--navy2));border:none;color:#fff}
+.kpi.hero .lbl{color:#c7d6ea}.kpi.hero .val{color:#fff}.kpi.hero .sub{color:#bcd0e8}
+.kpi.pink{background:linear-gradient(180deg,#fff,var(--pink-bg));border-color:#f2d6dd}
+
+/* 進捗バー */
+.pbar{height:9px;border-radius:6px;background:#e9eff7;overflow:hidden;margin-top:9px}
+.pbar > i{display:block;height:100%;background:linear-gradient(90deg,var(--pink),#e6a7b4);border-radius:6px}
+.kpi.hero .pbar{background:rgba(255,255,255,.2)}
+.kpi.hero .pbar > i{background:linear-gradient(90deg,#ffd0d9,#ffb3c1)}
+
+/* テーブル */
+.tbl{width:100%;border-collapse:collapse;font-size:13.5px}
+.tbl th,.tbl td{padding:10px 10px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+.tbl th{color:var(--sub);font-weight:600;font-size:12px;background:#f7fafd;position:sticky;top:0}
+.tbl td.name,.tbl th.name{text-align:left;font-weight:700;color:var(--navy)}
+.tbl tr:hover td{background:#fafcff}
+.tbl .big{font-weight:800}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.pill{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11.5px;font-weight:700}
+.pill.g{background:#e6f4ec;color:var(--ok)}.pill.y{background:#fbf1e0;color:var(--warn)}.pill.r{background:#f9e7e7;color:var(--bad)}
+.pill.n{background:#eef2f7;color:var(--sub)}
+
+/* フォーム */
+.form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px}
+.fld{display:flex;flex-direction:column;gap:5px}
+.fld label{font-size:12px;color:var(--sub);font-weight:600}
+.fld input,.fld select,.fld textarea{font-family:inherit;font-size:15px;padding:9px 11px;border:1px solid #d5e0ee;
+  border-radius:9px;background:#fff;color:var(--ink);width:100%}
+.fld input[type=number]{text-align:right}
+.fld input:focus,.fld textarea:focus,.fld select:focus{outline:none;border-color:var(--navy2);box-shadow:0 0 0 3px rgba(43,77,120,.1)}
+.grp{margin:16px 0 6px;font-size:12px;font-weight:700;color:var(--pink);letter-spacing:.03em}
+.grp:first-child{margin-top:4px}
+.btn{background:var(--navy);color:#fff;border:none;padding:11px 20px;border-radius:10px;font-size:14.5px;font-weight:700;
+  cursor:pointer;font-family:inherit}
+.btn:hover{background:var(--navy2)}
+.btn:disabled{opacity:.5;cursor:default}
+.btn.sm{padding:7px 13px;font-size:12.5px;border-radius:8px}
+.btn.pink{background:var(--pink)}.btn.pink:hover{background:#cf7787}
+.btn.line{background:#fff;color:var(--navy);border:1px solid #cdd9e8}
+.msg{font-size:13px;margin-top:10px;min-height:18px}
+.msg.ok{color:var(--ok)}.msg.err{color:var(--bad)}
+
+/* 認証ゲート */
+.gate{position:fixed;inset:0;background:linear-gradient(135deg,#1f3a5f,#33547d);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px}
+.gate.hide{display:none}
+.gate .box{background:#fff;border-radius:18px;padding:34px 30px;max-width:400px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.gate h2{color:var(--navy);font-size:20px;margin-bottom:6px}
+.gate p{color:var(--sub);font-size:13px;line-height:1.7;margin:0 0 18px}
+.gate input{width:100%;padding:12px 14px;border:1px solid #d5e0ee;border-radius:10px;font-size:15px;font-family:inherit;margin-bottom:12px}
+.gate .btn{width:100%}
+.deals-row{display:grid;grid-template-columns:1fr 110px 150px 1fr auto;gap:8px;align-items:end;margin-bottom:8px}
+@media(max-width:640px){
+  .kpi .val{font-size:23px}
+  .deals-row{grid-template-columns:1fr 1fr;}
+}
+.empty{color:var(--sub);font-size:13px;padding:18px;text-align:center}
+.hide{display:none!important}
+.legend{font-size:11.5px;color:var(--sub);margin-top:8px;line-height:1.7}
+.tag-me{font-size:10px;background:var(--pink);color:#fff;padding:1px 6px;border-radius:10px;margin-left:6px;vertical-align:middle}
+</style>
+</head>
+<body>
+
+<!-- 認証ゲート -->
+<div class="gate" id="gate">
+  <div class="box">
+    <div id="authStep1">
+      <h2>クローザー ダッシュボード</h2>
+      <p>会社のメールアドレスを入力してください。<br>ログイン用リンクをお送りします（パスワード不要）。</p>
+      <input id="authEmail" type="email" placeholder="you@merone.co.jp" autocomplete="email">
+      <button class="btn" id="authSendBtn" onclick="sendMagic()">ログイン用リンクを送信</button>
+      <div class="msg" id="authMsg"></div>
+    </div>
+    <div id="authStep2" style="display:none">
+      <h2>メールを確認してください</h2>
+      <p><b id="sentTo"></b> にリンクを送りました。<br>メール内のボタンを押すと、この画面が自動で開きます。</p>
+      <button class="btn line" onclick="resetAuth()">別のアドレスで送り直す</button>
+    </div>
+  </div>
+</div>
+
+<header>
+  <div class="wrap">
+    <div class="logo">Merone セールス クローザー<small>面談・成約・口頭合意 一元ダッシュボード</small></div>
+    <div class="hd-right">
+      <span class="conn"><span class="dot" id="connDot"></span><span id="connTxt">接続中…</span></span>
+      <span id="authUser"></span>
+      <button class="btn-ghost" onclick="logout()">ログアウト</button>
+    </div>
+  </div>
+</header>
+
+<div class="tabbar"><div class="wrap" id="tabbar"></div></div>
+
+<div class="wrap">
+  <div id="view"></div>
+</div>
+
+<script>
+// ============================================================
+// 初期化
+// ============================================================
+let sb=null, currentEmail='', myRole='closer';
+const STATUS_LIST=['口頭合意〜入金前','ローン申請中','日程調整中','面談後〜判断前','入金完了','辞退'];
+const PIPE=[
+  ['p_before','面談前'],['p_after','面談後〜判断前'],['p_verbal','口頭合意〜入金前'],
+  ['p_loan','ローン申請中'],['p_sched','日程調整中'],['p_resched','リスケ'],['p_cooloff','クーリングオフ対応中']
+];
+let closers=[], targets={}, reports=[], deals=[];
+let activeTab='__sum__', started=false, editing=false;
+
+if(SUPABASE_CONFIG.enabled && window.supabase){
+  sb=window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey);
+}
+function setConn(ok,txt){ document.getElementById('connDot').classList.toggle('off',!ok);
+  document.getElementById('connTxt').textContent=txt||(ok?'接続OK':'未接続'); }
+
+// ---- 日付ユーティリティ ----
+function todayStr(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function ym(d){ d=d||new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
+function curYM(){ return ym(); }
+function fmtMD(s){ if(!s) return '—'; const p=s.split('-'); const w=['日','月','火','水','木','金','土'][new Date(s+'T00:00:00').getDay()]; return (+p[1])+'/'+(+p[2])+'('+w+')'; }
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function n(v){ v=parseInt(v,10); return isNaN(v)?0:v; }
+
+// ============================================================
+// 認証（マジックリンク）
+// ============================================================
+function authMsg(t,k){ const e=document.getElementById('authMsg'); e.textContent=t||''; e.className='msg '+(k||''); }
+function resetAuth(){ document.getElementById('authStep1').style.display=''; document.getElementById('authStep2').style.display='none'; authMsg(''); }
+function showGate(){ document.getElementById('gate').classList.remove('hide'); }
+function hideGate(){ document.getElementById('gate').classList.add('hide'); }
+async function sendMagic(){
+  const email=(document.getElementById('authEmail').value||'').trim().toLowerCase();
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ authMsg('メールアドレスを正しくご入力ください','err'); return; }
+  const btn=document.getElementById('authSendBtn'); btn.disabled=true; btn.textContent='送信中…';
+  const {error}=await sb.auth.signInWithOtp({ email, options:{ emailRedirectTo: location.href.split('#')[0] } });
+  btn.disabled=false; btn.textContent='ログイン用リンクを送信';
+  if(error){ authMsg('送信エラー：'+error.message,'err'); return; }
+  try{ localStorage.setItem('sc_last_email',email); }catch(e){}
+  document.getElementById('sentTo').textContent=email;
+  document.getElementById('authStep1').style.display='none';
+  document.getElementById('authStep2').style.display='';
+}
+async function evalSession(session){
+  if(session && session.user){
+    const email=(session.user.email||'').toLowerCase();
+    let ok=false, role='closer';
+    try{ const {data}=await sb.from('sc_access').select('role_hint').eq('email',email).maybeSingle();
+      if(data){ ok=true; role=data.role_hint||'closer'; } }catch(e){ ok=false; }
+    if(!ok){ await sb.auth.signOut(); showGate(); resetAuth();
+      authMsg('このダッシュボードへのアクセス権限がありません。くみこさん／管理部にご確認ください。','err'); return; }
+    currentEmail=email; myRole=role;
+    document.getElementById('authUser').textContent=email+'　';
+    hideGate(); startBoard();
+  } else { showGate(); }
+}
+async function logout(){ if(sb) await sb.auth.signOut(); location.reload(); }
+
+// ============================================================
+// データ読み込み
+// ============================================================
+async function loadAll(){
+  if(!sb) return;
+  try{
+    const [c,t,r,d]=await Promise.all([
+      sb.from('sc_closers').select('*').eq('active',true).order('sort_order'),
+      sb.from('sc_targets').select('*').eq('ym',curYM()),
+      sb.from('sc_reports').select('*').gte('report_date',curYM()+'-01').order('report_date',{ascending:false}),
+      sb.from('sc_deals').select('*').order('deal_date',{ascending:true})
+    ]);
+    closers=c.data||[]; reports=r.data||[]; deals=d.data||[];
+    targets={}; (t.data||[]).forEach(x=>targets[x.closer_id]=x.target_deals);
+    setConn(true,'接続OK・'+curYM());
+    render();
+  }catch(e){ setConn(false,'読込エラー'); console.error(e); }
+}
+function startBoard(){
+  if(started) return; started=true;
+  buildTabs(); loadAll();
+  setInterval(()=>{ if(!editing) loadAll(); }, 6000);
+  window.addEventListener('focus',()=>{ if(!editing) loadAll(); });
+}
+
+// 自分のスラッグ推定（メール先頭 or 名簿と突合）※デフォルトタブに使う
+function mySlug(){
+  const local=currentEmail.split('@')[0];      // 例: r.honda
+  const cand=closers.find(c=> c.id===local || ('closer_'+c.id)===local || local.endsWith(c.id) || (c.slack_id&&false));
+  return cand?cand.id:null;
+}
+
+// ============================================================
+// 集計ロジック
+// ============================================================
+function latestReport(cid){ return reports.find(r=>r.closer_id===cid) || null; } // reportsは日付降順
+function monthReports(cid){ return reports.filter(r=>r.closer_id===cid); }
+function sumField(rows,f){ return rows.reduce((a,r)=>a+n(r[f]),0); }
+function openDeals(cid){ return deals.filter(d=>d.closer_id===(cid||d.closer_id) && d.status!=='入金完了' && d.status!=='辞退' && (!cid||d.closer_id===cid)); }
+
+function closerStats(cid){
+  const rs=monthReports(cid), lr=latestReport(cid);
+  const meetings=sumField(rs,'meetings'), closed=sumField(rs,'closed'), instant=sumField(rs,'instant_close');
+  const target=n(targets[cid]);
+  const verbalStock = lr?n(lr.p_verbal)+n(lr.p_loan):0;
+  const od=deals.filter(d=>d.closer_id===cid && d.status!=='入金完了' && d.status!=='辞退');
+  return { meetings, closed, instant, target,
+    rate: meetings? Math.round(closed/meetings*100):0,
+    instRate: meetings? Math.round(instant/meetings*100):0,
+    achieve: target? Math.round(closed/target*100):0,
+    verbalStock, openDealCount:od.length, lr };
+}
+function teamStats(){
+  let meetings=0,closed=0,instant=0,target=0,verbalStock=0;
+  closers.forEach(c=>{ const s=closerStats(c.id); meetings+=s.meetings;closed+=s.closed;instant+=s.instant;target+=s.target;verbalStock+=s.verbalStock; });
+  const override=n(targets['__team__']); if(override>0) target=override;
+  return { meetings,closed,instant,target,verbalStock,
+    rate: meetings?Math.round(closed/meetings*100):0,
+    instRate: meetings?Math.round(instant/meetings*100):0,
+    achieve: target?Math.round(closed/target*100):0,
+    openDealCount: deals.filter(d=>d.status!=='入金完了'&&d.status!=='辞退').length };
+}
+
+// ============================================================
+// タブ
+// ============================================================
+function buildTabs(){
+  const bar=document.getElementById('tabbar');
+  const me=mySlug();
+  let html='<button class="tab sum" data-t="__sum__" onclick="go(\'__sum__\')"><span class="mk"></span>集計（チーム）</button>';
+  closers.forEach(c=>{ html+='<button class="tab" data-t="'+c.id+'" onclick="go(\''+c.id+'\')">'+esc(c.name)+(c.id===me?'<span class="tag-me">あなた</span>':'')+'</button>'; });
+  bar.innerHTML=html;
+  // デフォルトタブ：URL ?me=slug > 自分の名簿 > 集計
+  const q=new URLSearchParams(location.search).get('me');
+  if(q && closers.some(c=>c.id===q)) activeTab=q;
+  else if(me && activeTab==='__sum__' && !window.__tabInit) activeTab=me;
+  window.__tabInit=true;
+  highlight();
+}
+function highlight(){ document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.getAttribute('data-t')===activeTab)); }
+function go(t){ activeTab=t; highlight(); render(); window.scrollTo({top:0,behavior:'smooth'}); }
+
+// ============================================================
+// 描画
+// ============================================================
+function render(){
+  if(!started) return;
+  // タブが未生成 or 名簿更新時は作り直し
+  if(document.querySelectorAll('.tab').length !== closers.length+1) buildTabs();
+  if(activeTab!=='__sum__' && !closers.some(c=>c.id===activeTab)) activeTab='__sum__';
+  highlight();
+  const v=document.getElementById('view');
+  v.innerHTML = activeTab==='__sum__' ? renderSummary() : renderCloser(activeTab);
+  if(activeTab!=='__sum__') fillForm(activeTab);
+}
+
+function achievePill(p){ const k=p>=100?'g':p>=70?'y':'r'; return '<span class="pill '+k+'">'+p+'%</span>'; }
+
+function renderSummary(){
+  if(!closers.length) return '<div class="card"><div class="empty">名簿がまだ登録されていません。<br>SEED（非公開）SQL を Supabase に貼って RUN してください。</div></div>';
+  const s=teamStats();
+  let h='';
+  // チームKPI
+  h+='<div class="card"><h3><span class="bar"></span>チーム全体　<span class="muted">（'+curYM()+'）</span></h3>'
+   +'<div class="sec-sub">今月の面談日ベース集計。パイプラインは各クローザーの最新報告の合計。</div>'
+   +'<div class="kpis">'
+   +kpiHero('月間 成約', s.closed, '目標 '+s.target+'件', s.achieve)
+   +kpi('達成率', s.achieve+'<small>%</small>', '目標 '+s.target+'件')
+   +kpi('面談数', s.meetings+'<small>件</small>', '即決 '+s.instant+'件')
+   +kpi('成約率', s.rate+'<small>%</small>', '即決率 '+s.instRate+'%')
+   +kpiPink('口頭合意ストック', s.verbalStock+'<small>件</small>', '追客中の個別案件 '+s.openDealCount+'件')
+   +'</div></div>';
+  // クローザー別テーブル
+  h+='<div class="card"><h3><span class="bar"></span>クローザー別サマリー</h3>'
+   +'<div class="scroll"><table class="tbl"><thead><tr>'
+   +'<th class="name">クローザー</th><th>目標</th><th>成約</th><th>達成率</th><th>面談</th><th>即決</th><th>成約率</th><th>口頭合意残</th><th>最終報告</th>'
+   +'</tr></thead><tbody>';
+  closers.forEach(c=>{ const st=closerStats(c.id); const lr=st.lr;
+    h+='<tr onclick="go(\''+c.id+'\')" style="cursor:pointer">'
+     +'<td class="name">'+esc(c.name)+'</td>'
+     +'<td>'+(st.target||'—')+'</td>'
+     +'<td class="big">'+st.closed+'</td>'
+     +'<td>'+(st.target?achievePill(st.achieve):'<span class="pill n">未設定</span>')+'</td>'
+     +'<td>'+st.meetings+'</td>'
+     +'<td>'+st.instant+'</td>'
+     +'<td>'+(st.meetings?st.rate+'%':'—')+'</td>'
+     +'<td>'+st.verbalStock+'</td>'
+     +'<td>'+(lr?fmtMD(lr.report_date):'<span class="pill r">未報告</span>')+'</td>'
+     +'</tr>';
+  });
+  h+='</tbody></table></div></div>';
+  // 口頭合意 進捗一覧
+  const od=deals.filter(d=>d.status!=='入金完了'&&d.status!=='辞退')
+    .sort((a,b)=>(a.deal_date||'9')<(b.deal_date||'9')?-1:1);
+  h+='<div class="card"><h3><span class="bar"></span>口頭合意〜入金前の進捗（追客リスト）</h3>'
+   +'<div class="sec-sub">各クローザーが個別に登録・後追いしている案件。入金完了/辞退で自動的にこの一覧から外れます。</div>';
+  if(!od.length) h+='<div class="empty">追客中の個別案件はありません。</div>';
+  else{
+    h+='<div class="scroll"><table class="tbl"><thead><tr><th class="name">顧客</th><th class="name">担当</th><th>合意日</th><th class="name">ステータス</th><th class="name">メモ</th></tr></thead><tbody>';
+    od.forEach(d=>{ const c=closers.find(x=>x.id===d.closer_id);
+      const sk=d.status==='ローン申請中'?'y':'g';
+      h+='<tr><td class="name">'+esc(d.customer)+'</td><td class="name">'+esc(c?c.name:d.closer_id)+'</td>'
+       +'<td>'+fmtMD(d.deal_date)+'</td><td style="text-align:left"><span class="pill '+sk+'">'+esc(d.status)+'</span></td>'
+       +'<td class="name" style="white-space:normal;color:var(--sub)">'+esc(d.memo||'')+'</td></tr>';
+    });
+    h+='</tbody></table></div>';
+  }
+  h+='</div>';
+  return h;
+}
+
+function kpiHero(l,v,sub,pct){ pct=Math.min(pct||0,100);
+  return '<div class="kpi hero"><div class="lbl">'+l+'</div><div class="val">'+v+'<small>件</small></div>'
+    +'<div class="pbar"><i style="width:'+pct+'%"></i></div><div class="sub">'+sub+'</div></div>'; }
+function kpi(l,v,sub){ return '<div class="kpi"><div class="lbl">'+l+'</div><div class="val">'+v+'</div><div class="sub">'+(sub||'')+'</div></div>'; }
+function kpiPink(l,v,sub){ return '<div class="kpi pink"><div class="lbl">'+l+'</div><div class="val">'+v+'</div><div class="sub">'+(sub||'')+'</div></div>'; }
+
+function renderCloser(cid){
+  const c=closers.find(x=>x.id===cid); if(!c) return '';
+  const st=closerStats(cid);
+  let h='';
+  // KPI
+  h+='<div class="card"><h3><span class="bar"></span>'+esc(c.name)+'　<span class="muted">（'+curYM()+'）</span></h3>'
+   +'<div class="kpis">'
+   +kpiHero('月間 成約', st.closed, '目標 '+st.target+'件', st.achieve)
+   +kpi('達成率', (st.target?st.achieve:'—')+'<small>'+(st.target?'%':'')+'</small>', st.target?'目標 '+st.target+'件':'目標未設定')
+   +kpi('面談数', st.meetings+'<small>件</small>', '即決 '+st.instant+'件')
+   +kpi('成約率', (st.meetings?st.rate:'—')+'<small>'+(st.meetings?'%':'')+'</small>', '即決率 '+st.instRate+'%')
+   +kpiPink('口頭合意残', st.verbalStock+'<small>件</small>', '追客中 '+st.openDealCount+'件')
+   +'</div></div>';
+
+  // 日次報告フォーム
+  h+='<div class="card"><h3><span class="bar"></span>本日の報告を入力</h3>'
+   +'<div class="sec-sub">送信すると①このダッシュボードに即反映　②マーケ03_セールス報告スレへ自動投稿されます。同じ日付で送り直すと上書きされます。</div>'
+   +'<div class="grp">日付・その日の実績</div>'
+   +'<div class="form-grid">'
+   +fInput('rp_date','日付','date',todayStr())
+   +fInput('rp_meetings','面談数','number')
+   +fInput('rp_instant','即決数','number')
+   +fInput('rp_closed','成約数（入金完了）','number')
+   +'</div>'
+   +'<div class="grp">現在のパイプライン（今の保有件数）</div>'
+   +'<div class="form-grid">'
+   +PIPE.map(p=>fInput('rp_'+p[0],p[1],'number')).join('')
+   +'</div>'
+   +'<div class="grp">ネクストアクション・所感（任意）</div>'
+   +'<div class="fld"><textarea id="rp_note" rows="2" placeholder="口頭合意◯◯さん、明日入金予定／リスケ調整中 など"></textarea></div>'
+   +'<div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">'
+   +'<button class="btn" id="rpBtn" onclick="submitReport(\''+cid+'\')">報告を送信</button>'
+   +'<span class="muted" id="rpHint"></span></div>'
+   +'<div class="msg" id="rpMsg"></div></div>';
+
+  // 口頭合意 個別案件マネージャ
+  const my=deals.filter(d=>d.closer_id===cid).sort((a,b)=>(a.deal_date||'9')<(b.deal_date||'9')?-1:1);
+  h+='<div class="card"><h3><span class="bar"></span>口頭合意など 個別案件（追客リスト）</h3>'
+   +'<div class="sec-sub">入金前の案件を1件ずつ登録して後追い。ステータスを「入金完了／辞退」にすると一覧から外れます。</div>'
+   +'<div class="deals-row">'
+   +'<div class="fld"><label>顧客名</label><input id="dl_cust" placeholder="◯◯さん"></div>'
+   +'<div class="fld"><label>合意日</label><input id="dl_date" type="date" value="'+todayStr()+'"></div>'
+   +'<div class="fld"><label>ステータス</label><select id="dl_status">'+STATUS_LIST.map(s=>'<option>'+s+'</option>').join('')+'</select></div>'
+   +'<div class="fld"><label>メモ</label><input id="dl_memo" placeholder="ローン審査待ち 等"></div>'
+   +'<div class="fld"><label>&nbsp;</label><button class="btn pink sm" onclick="addDeal(\''+cid+'\')">追加</button></div>'
+   +'</div>';
+  if(my.length){
+    h+='<div class="scroll"><table class="tbl"><thead><tr><th class="name">顧客</th><th>合意日</th><th class="name">ステータス</th><th class="name">メモ</th><th></th></tr></thead><tbody>';
+    my.forEach(d=>{ const done=d.status==='入金完了'||d.status==='辞退';
+      h+='<tr style="'+(done?'opacity:.5':'')+'"><td class="name">'+esc(d.customer)+'</td><td>'+fmtMD(d.deal_date)+'</td>'
+       +'<td style="text-align:left"><select onchange="setDealStatus(\''+d.id+'\',this.value)" style="font-size:12px;padding:4px 6px;border-radius:6px;border:1px solid #d5e0ee">'
+       +STATUS_LIST.map(s=>'<option'+(s===d.status?' selected':'')+'>'+s+'</option>').join('')+'</select></td>'
+       +'<td class="name" style="white-space:normal;color:var(--sub)">'+esc(d.memo||'')+'</td>'
+       +'<td><button class="btn line sm" onclick="delDeal(\''+d.id+'\')">削除</button></td></tr>';
+    });
+    h+='</tbody></table></div>';
+  } else h+='<div class="empty">まだ案件はありません。</div>';
+  h+='</div>';
+
+  // 直近の報告履歴
+  const rs=monthReports(cid);
+  h+='<div class="card"><h3><span class="bar"></span>今月の報告履歴</h3>';
+  if(rs.length){
+    h+='<div class="scroll"><table class="tbl"><thead><tr><th class="name">日付</th><th>面談</th><th>即決</th><th>成約</th>'
+     +PIPE.map(p=>'<th>'+p[1].replace('〜','〜<br>')+'</th>').join('')+'<th class="name">メモ</th></tr></thead><tbody>';
+    rs.forEach(r=>{ h+='<tr><td class="name">'+fmtMD(r.report_date)+'</td><td class="big">'+n(r.meetings)+'</td><td>'+n(r.instant_close)+'</td><td class="big">'+n(r.closed)+'</td>'
+      +PIPE.map(p=>'<td>'+n(r[p[0]])+'</td>').join('')
+      +'<td class="name" style="white-space:normal;color:var(--sub);max-width:220px">'+esc(r.note||'')+'</td></tr>'; });
+    h+='</tbody></table></div>';
+  } else h+='<div class="empty">今月の報告はまだありません。</div>';
+  h+='</div>';
+
+  // 目標設定（owner/exec のみ）
+  if(myRole==='owner'||myRole==='exec'){
+    h+='<div class="card"><h3><span class="bar"></span>月間 成約目標の設定</h3>'
+     +'<div class="deals-row" style="grid-template-columns:150px 130px auto">'
+     +'<div class="fld"><label>対象月</label><input id="tg_ym" value="'+curYM()+'" readonly style="background:#f5f8fc"></div>'
+     +'<div class="fld"><label>目標成約数</label><input id="tg_val" type="number" value="'+(st.target||'')+'"></div>'
+     +'<div class="fld"><label>&nbsp;</label><button class="btn sm" onclick="setTarget(\''+cid+'\')">保存</button></div>'
+     +'</div><div class="msg" id="tgMsg"></div></div>';
+  }
+  return h;
+}
+function fInput(id,label,type,val){ return '<div class="fld"><label>'+label+'</label><input id="'+id+'" type="'+(type||'text')+'"'+(val!=null?' value="'+val+'"':'')+(type==='number'?' min="0" placeholder="0"':'')+'></div>'; }
+
+// 既存の当日報告があればフォームに反映
+function fillForm(cid){
+  const dEl=document.getElementById('rp_date'); if(!dEl) return;
+  const load=()=>{ const date=dEl.value; const r=reports.find(x=>x.closer_id===cid&&x.report_date===date);
+    const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.value=(v==null?'':v); };
+    if(r){ set('rp_meetings',r.meetings);set('rp_instant',r.instant_close);set('rp_closed',r.closed);
+      PIPE.forEach(p=>set('rp_'+p[0],r[p[0]])); set('rp_note',r.note);
+      document.getElementById('rpHint').textContent='この日は報告済み。送信で上書きします。'; }
+    else { document.getElementById('rpHint').textContent=''; }
+  };
+  dEl.onchange=load; dEl.onfocus=()=>editing=true; dEl.onblur=()=>editing=false;
+  ['rp_meetings','rp_instant','rp_closed','rp_note',...PIPE.map(p=>'rp_'+p[0])].forEach(id=>{
+    const e=document.getElementById(id); if(e){ e.onfocus=()=>editing=true; e.onblur=()=>editing=false; } });
+  load();
+}
+
+// ============================================================
+// 書き込み
+// ============================================================
+async function submitReport(cid){
+  const g=id=>n(document.getElementById(id).value);
+  const row={ closer_id:cid, report_date:document.getElementById('rp_date').value,
+    meetings:g('rp_meetings'), instant_close:g('rp_instant'), closed:g('rp_closed'),
+    note:(document.getElementById('rp_note').value||'').trim(), updated_at:new Date().toISOString() };
+  PIPE.forEach(p=>row[p[0]]=g('rp_'+p[0]));
+  const btn=document.getElementById('rpBtn'), msg=document.getElementById('rpMsg');
+  btn.disabled=true; btn.textContent='送信中…'; msg.textContent='';
+  const {error}=await sb.from('sc_reports').upsert(row,{onConflict:'closer_id,report_date'});
+  btn.disabled=false; btn.textContent='報告を送信';
+  if(error){ msg.className='msg err'; msg.textContent='保存エラー：'+error.message; return; }
+  editing=false;
+  msg.className='msg ok'; msg.textContent='保存しました。';
+  postToSlack(cid,row).then(r=>{ if(r===true) msg.textContent='保存＆Slack投稿しました。';
+    else if(r==='off') msg.textContent='保存しました（Slack連携は未設定）。';
+    else msg.textContent='保存しました（Slack投稿は失敗：'+r+'）。'; });
+  await loadAll();
+}
+async function setTarget(cid){
+  const val=n(document.getElementById('tg_val').value);
+  const {error}=await sb.from('sc_targets').upsert({closer_id:cid,ym:curYM(),target_deals:val,updated_at:new Date().toISOString()},{onConflict:'closer_id,ym'});
+  const msg=document.getElementById('tgMsg');
+  if(error){ msg.className='msg err'; msg.textContent='保存エラー：'+error.message; }
+  else { msg.className='msg ok'; msg.textContent='目標を保存しました。'; await loadAll(); }
+}
+async function addDeal(cid){
+  const cust=(document.getElementById('dl_cust').value||'').trim(); if(!cust){ return; }
+  const row={ closer_id:cid, customer:cust, deal_date:document.getElementById('dl_date').value||null,
+    status:document.getElementById('dl_status').value, memo:(document.getElementById('dl_memo').value||'').trim() };
+  const {error}=await sb.from('sc_deals').insert(row);
+  if(!error){ document.getElementById('dl_cust').value=''; document.getElementById('dl_memo').value=''; await loadAll(); }
+}
+async function setDealStatus(id,status){ await sb.from('sc_deals').update({status,updated_at:new Date().toISOString()}).eq('id',id); await loadAll(); }
+async function delDeal(id){ if(!confirm('この案件を削除しますか？')) return; await sb.from('sc_deals').delete().eq('id',id); await loadAll(); }
+
+// ============================================================
+// Slack 連携（GAS Web App 経由）
+// ============================================================
+async function postToSlack(cid,row){
+  const url=SUPABASE_CONFIG.slackRelayUrl; if(!url) return 'off';
+  const c=closers.find(x=>x.id===cid);
+  const pipeTxt=PIPE.filter(p=>n(row[p[0]])>0).map(p=>p[1]+n(row[p[0]])).join('・')||'なし';
+  const payload={ closer:c?c.name:cid, date:row.report_date,
+    meetings:row.meetings, instant:row.instant_close, closed:row.closed,
+    pipeline:pipeTxt, note:row.note||'', slack_id:c?c.slack_id:'' };
+  try{
+    // GASのCORS制約を避けるため text/plain + no-cors 相当（GAS側で JSON.parse）
+    await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload)});
+    return true;
+  }catch(e){ return e.message||'network'; }
+}
+
+// ============================================================
+// 起動
+// ============================================================
+(async function init(){
+  if(!sb){ hideGate(); setConn(false,'supabase_config.js 未設定'); return; }
+  sb.auth.onAuthStateChange((_e,session)=>{ evalSession(session); });
+  const {data:{session}}=await sb.auth.getSession();
+  await evalSession(session);
+})();
+</script>
+</body>
+</html>
