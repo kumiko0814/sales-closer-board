@@ -118,6 +118,29 @@ header .wrap{padding-bottom:0;display:flex;align-items:center;gap:14px;flex-wrap
 .hide{display:none!important}
 .legend{font-size:11.5px;color:var(--sub);margin-top:8px;line-height:1.7}
 .tag-me{font-size:10px;background:var(--pink);color:#fff;padding:1px 6px;border-radius:10px;margin-left:6px;vertical-align:middle}
+/* 誰のページか バナー */
+.whose{border-radius:12px;padding:12px 16px;margin-bottom:16px;font-size:14px;line-height:1.7}
+.whose.mine{background:linear-gradient(135deg,#eef5ff,#f7fbff);border:1px solid #cfe0f5;color:var(--navy)}
+.whose.view{background:#fbf5ee;border:1px solid #efdcc4;color:#8a6a3c}
+.whose .wtag{display:inline-block;margin-left:10px;font-size:11.5px;font-weight:700;background:var(--pink);color:#fff;padding:2px 10px;border-radius:20px}
+.whose .wtag.lead{background:var(--navy2)}
+/* はじめての方へ カード */
+.help-card{background:linear-gradient(135deg,#fff,#f6fbf8);border:1px solid #d7e9de;border-left:4px solid var(--ok);border-radius:12px;padding:16px 18px;margin-bottom:18px}
+.help-card h4{color:var(--navy);font-size:14.5px;margin-bottom:8px}
+.help-card ol{margin:0;padding-left:20px;font-size:13.5px;color:var(--ink);line-height:1.9}
+.help-card .more{margin-top:10px}
+.btn-help{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.3);padding:5px 12px;border-radius:8px;font-size:12px;cursor:pointer;font-family:inherit}
+.btn-help:hover{background:rgba(255,255,255,.22)}
+/* 使い方モーダル */
+.modal{position:fixed;inset:0;background:rgba(31,58,95,.55);display:none;align-items:flex-start;justify-content:center;z-index:80;padding:30px 16px;overflow:auto}
+.modal.on{display:flex}
+.modal .sheet{background:#fff;border-radius:16px;max-width:640px;width:100%;padding:26px 28px;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.modal h2{color:var(--navy);font-size:19px;margin-bottom:4px}
+.modal h3{color:var(--pink);font-size:13.5px;margin:18px 0 6px;letter-spacing:.02em}
+.modal p,.modal li{font-size:13.5px;line-height:1.85;color:var(--ink)}
+.modal ol,.modal ul{padding-left:20px;margin:4px 0}
+.modal .x{float:right;border:none;background:#eef2f7;width:30px;height:30px;border-radius:8px;font-size:16px;cursor:pointer;color:var(--sub)}
+.modal .note{background:#fbeef1;border:1px solid #f2d6dd;border-radius:10px;padding:10px 13px;color:#8a4a58;font-size:13px;margin-top:14px}
 </style>
 </head>
 <body>
@@ -146,10 +169,48 @@ header .wrap{padding-bottom:0;display:flex;align-items:center;gap:14px;flex-wrap
     <div class="hd-right">
       <span class="conn"><span class="dot" id="connDot"></span><span id="connTxt">接続中…</span></span>
       <span id="authUser"></span>
+      <button class="btn-help" onclick="openHelp()">？使い方</button>
       <button class="btn-ghost" onclick="logout()">ログアウト</button>
     </div>
   </div>
 </header>
+
+<!-- 使い方モーダル -->
+<div class="modal" id="helpModal" onclick="if(event.target===this)closeHelp()">
+  <div class="sheet">
+    <button class="x" onclick="closeHelp()">×</button>
+    <h2>このダッシュボードの使い方</h2>
+    <p class="muted">面談のたびに「シート」と「Slack」へ二重に書く手間をなくすためのボードです。ここに1回入力すれば、集計にもSlack（マーケ03）にも自動で反映されます。</p>
+
+    <h3>■ ログイン</h3>
+    <ol>
+      <li>会社のメールアドレスを入力 → 届いたメールのリンクを押すだけ（パスワード不要）</li>
+      <li>ログインすると、自動で<b>自分の名前のタブ</b>が開きます（<span class="tag-me">あなた</span>マーク付き）</li>
+    </ol>
+
+    <h3>■ 報告のしかた（毎日の稼働後）</h3>
+    <ol>
+      <li>自分のタブの「<b>本日の報告を入力</b>」で、その日の <b>面談数／即決数／成約数</b> を入れる</li>
+      <li>続けて「<b>現在のパイプライン</b>」に、今かかえている件数（面談前・口頭合意〜入金前・リスケ 等）を入れる</li>
+      <li>「<b>報告を送信</b>」を押す → 集計に即反映＋<b>マーケ03の当日リマインダーのスレッドへ自動投稿</b></li>
+      <li>同じ日に送り直すと<b>上書き</b>されます（間違えても直せます）</li>
+    </ol>
+
+    <h3>■ 口頭合意など個別案件の追客</h3>
+    <ul>
+      <li>「口頭合意など 個別案件」で、入金前のお客様を1件ずつ登録 → 後追い</li>
+      <li>「入金完了／辞退」に変えると、追客リストから自動で外れます</li>
+    </ul>
+
+    <h3>■ 見方（集計タブ）</h3>
+    <ul>
+      <li>一番左の「<b>集計（チーム）</b>」で、チーム全体の目標・成約・達成率・口頭合意の状況がひと目で分かります</li>
+      <li>各クローザーの行をタップすると、その人のページに移動します</li>
+    </ul>
+
+    <div class="note">🔒 <b>入力できるのは自分のタブだけ</b>です。他の人のタブは「閲覧専用」で、間違って他人の欄に入力されない仕組みです。<br>（上司＝森川・清水は、全員の入力・目標設定ができます）</div>
+  </div>
+</div>
 
 <div class="tabbar"><div class="wrap" id="tabbar"></div></div>
 
@@ -217,6 +278,8 @@ async function evalSession(session){
   } else { showGate(); }
 }
 async function logout(){ if(sb) await sb.auth.signOut(); location.reload(); }
+function openHelp(){ document.getElementById('helpModal').classList.add('on'); }
+function closeHelp(){ document.getElementById('helpModal').classList.remove('on'); }
 
 // ============================================================
 // データ読み込み
@@ -243,12 +306,21 @@ function startBoard(){
   window.addEventListener('focus',()=>{ if(!editing) loadAll(); });
 }
 
-// 自分のスラッグ推定（メール先頭 or 名簿と突合）※デフォルトタブに使う
-function mySlug(){
-  const local=currentEmail.split('@')[0];      // 例: r.honda
-  const cand=closers.find(c=> c.id===local || ('closer_'+c.id)===local || local.endsWith(c.id) || (c.slack_id&&false));
-  return cand?cand.id:null;
+// ログイン中メール → 自分のクローザーID（本人タブ判定・編集権限に使う）
+function myCloserId(){
+  const email=currentEmail.toLowerCase();
+  // 1) 名簿にemail列があれば完全一致優先
+  let c=closers.find(x=>(x.email||'').toLowerCase()===email);
+  if(c) return c.id;
+  // 2) メール規則（頭文字.苗字）→ 苗字＝スラッグ（例 r.honda→honda）
+  const local=(email.split('@')[0]||'');
+  const last=local.split('.').pop();
+  c=closers.find(x=>x.id===last);
+  return c?c.id:null;
 }
+function isLead(){ return myRole==='owner'||myRole==='exec'; }
+// 上司は全員分を編集可。クローザーは自分のタブだけ編集可（他人タブは閲覧専用）
+function canEdit(cid){ return isLead() || cid===myCloserId(); }
 
 // ============================================================
 // 集計ロジック
@@ -286,7 +358,7 @@ function teamStats(){
 // ============================================================
 function buildTabs(){
   const bar=document.getElementById('tabbar');
-  const me=mySlug();
+  const me=myCloserId();
   let html='<button class="tab sum" data-t="__sum__" onclick="go(\'__sum__\')"><span class="mk"></span>集計（チーム）</button>';
   closers.forEach(c=>{ html+='<button class="tab" data-t="'+c.id+'" onclick="go(\''+c.id+'\')">'+esc(c.name)+(c.id===me?'<span class="tag-me">あなた</span>':'')+'</button>'; });
   bar.innerHTML=html;
@@ -320,6 +392,12 @@ function renderSummary(){
   if(!closers.length) return '<div class="card"><div class="empty">名簿がまだ登録されていません。<br>SEED（非公開）SQL を Supabase に貼って RUN してください。</div></div>';
   const s=teamStats();
   let h='';
+  // はじめての方へ（使い方への入口）
+  h+='<div class="help-card"><h4>はじめての方へ ── 使い方（かんたん3ステップ）</h4>'
+   +'<ol><li>上のタブで<b>自分の名前</b>（<span class="tag-me">あなた</span>）を開く</li>'
+   +'<li>「本日の報告を入力」に、その日の<b>面談・即決・成約</b>と<b>今のパイプライン</b>を入れて<b>送信</b></li>'
+   +'<li>送信すると、この集計に反映＋<b>マーケ03のスレッドへ自動投稿</b>（シートやSlackへの二重入力は不要）</li></ol>'
+   +'<div class="more"><button class="btn line sm" onclick="openHelp()">くわしい使い方・見方をひらく</button></div></div>';
   // チームKPI
   h+='<div class="card"><h3><span class="bar"></span>チーム全体　<span class="muted">（'+curYM()+'）</span></h3>'
    +'<div class="sec-sub">今月の面談日ベース集計。パイプラインは各クローザーの最新報告の合計。</div>'
@@ -384,6 +462,7 @@ function renderTargetPanel(){
   return h;
 }
 async function setTargetFrom(cid){
+  if(!isLead()) return;
   const val=n(document.getElementById('tgi_'+cid).value);
   const {error}=await sb.from('sc_targets').upsert({closer_id:cid,ym:curYM(),target_deals:val,updated_at:new Date().toISOString()},{onConflict:'closer_id,ym'});
   const m=document.getElementById('tgpMsg');
@@ -399,7 +478,20 @@ function kpiPink(l,v,sub){ return '<div class="kpi pink"><div class="lbl">'+l+'<
 function renderCloser(cid){
   const c=closers.find(x=>x.id===cid); if(!c) return '';
   const st=closerStats(cid);
+  const editable=canEdit(cid);          // 本人 or 上司なら入力可
+  const mine=cid===myCloserId();
   let h='';
+
+  // 誰のページか＆入力可否をはっきり明示（誤入力防止の要）
+  if(editable){
+    h+='<div class="whose mine"><b>'+esc(c.name)+' さんのページ</b>'
+     +(mine?'<span class="wtag">あなた専用・入力できます</span>':'<span class="wtag lead">上司権限：代理入力できます</span>')+'</div>';
+  } else {
+    const meName=(closers.find(x=>x.id===myCloserId())||{}).name;
+    h+='<div class="whose view">🔒 これは <b>'+esc(c.name)+' さん</b> のページです（<b>閲覧専用</b>）。'
+     +'ご自身の報告は'+(meName?'上の「<b>'+esc(meName)+'</b>」タブ（<span class="tag-me">あなた</span>）':'ご自身のタブ')+'から入力してください。</div>';
+  }
+
   // KPI
   h+='<div class="card"><h3><span class="bar"></span>'+esc(c.name)+'　<span class="muted">（'+curYM()+'）</span></h3>'
    +'<div class="kpis">'
@@ -410,52 +502,63 @@ function renderCloser(cid){
    +kpiPink('口頭合意残', st.verbalStock+'<small>件</small>', '追客中 '+st.openDealCount+'件')
    +'</div></div>';
 
-  // 日次報告フォーム
-  h+='<div class="card"><h3><span class="bar"></span>本日の報告を入力</h3>'
-   +'<div class="sec-sub">送信すると①このダッシュボードに即反映　②マーケ03_セールス報告スレへ自動投稿されます。同じ日付で送り直すと上書きされます。</div>'
-   +'<div class="grp">日付・その日の実績</div>'
-   +'<div class="form-grid">'
-   +fInput('rp_date','日付','date',todayStr())
-   +fInput('rp_meetings','面談数','number')
-   +fInput('rp_instant','即決数','number')
-   +fInput('rp_closed','成約数（入金完了）','number')
-   +'</div>'
-   +'<div class="grp">現在のパイプライン（今の保有件数）</div>'
-   +'<div class="form-grid">'
-   +PIPE.map(p=>fInput('rp_'+p[0],p[1],'number')).join('')
-   +'</div>'
-   +'<div class="grp">ネクストアクション・所感（任意）</div>'
-   +'<div class="fld"><textarea id="rp_note" rows="2" placeholder="口頭合意◯◯さん、明日入金予定／リスケ調整中 など"></textarea></div>'
-   +'<div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">'
-   +'<button class="btn" id="rpBtn" onclick="submitReport(\''+cid+'\')">報告を送信</button>'
-   +'<span class="muted" id="rpHint"></span></div>'
-   +'<div class="msg" id="rpMsg"></div></div>';
+  // 日次報告フォーム（編集可の人だけ表示）
+  if(editable){
+    h+='<div class="card"><h3><span class="bar"></span>本日の報告を入力</h3>'
+     +'<div class="sec-sub">送信すると①このダッシュボードに即反映　②マーケ03_セールス報告スレの「本日のセールス報告」スレッドへ自動返信されます。同じ日付で送り直すと上書きされます。</div>'
+     +'<div class="grp">日付・その日の実績</div>'
+     +'<div class="form-grid">'
+     +fInput('rp_date','日付','date',todayStr())
+     +fInput('rp_meetings','面談数','number')
+     +fInput('rp_instant','即決数','number')
+     +fInput('rp_closed','成約数（入金完了）','number')
+     +'</div>'
+     +'<div class="grp">現在のパイプライン（今の保有件数）</div>'
+     +'<div class="form-grid">'
+     +PIPE.map(p=>fInput('rp_'+p[0],p[1],'number')).join('')
+     +'</div>'
+     +'<div class="grp">ネクストアクション・所感（任意）</div>'
+     +'<div class="fld"><textarea id="rp_note" rows="2" placeholder="口頭合意◯◯さん、明日入金予定／リスケ調整中 など"></textarea></div>'
+     +'<div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">'
+     +'<button class="btn" id="rpBtn" onclick="submitReport(\''+cid+'\')">報告を送信</button>'
+     +'<span class="muted" id="rpHint"></span></div>'
+     +'<div class="msg" id="rpMsg"></div></div>';
+  }
 
-  // 口頭合意 個別案件マネージャ
+  // 口頭合意 個別案件マネージャ（追加は編集可の人だけ）
   const my=deals.filter(d=>d.closer_id===cid).sort((a,b)=>(a.deal_date||'9')<(b.deal_date||'9')?-1:1);
   h+='<div class="card"><h3><span class="bar"></span>口頭合意など 個別案件（追客リスト）</h3>'
-   +'<div class="sec-sub">入金前の案件を1件ずつ登録して後追い。ステータスを「入金完了／辞退」にすると一覧から外れます。</div>'
-   +'<div class="deals-row">'
-   +'<div class="fld"><label>顧客名</label><input id="dl_cust" placeholder="◯◯さん"></div>'
-   +'<div class="fld"><label>合意日</label><input id="dl_date" type="date" value="'+todayStr()+'"></div>'
-   +'<div class="fld"><label>ステータス</label><select id="dl_status">'+STATUS_LIST.map(s=>'<option>'+s+'</option>').join('')+'</select></div>'
-   +'<div class="fld"><label>メモ</label><input id="dl_memo" placeholder="ローン審査待ち 等"></div>'
-   +'<div class="fld"><label>&nbsp;</label><button class="btn pink sm" onclick="addDeal(\''+cid+'\')">追加</button></div>'
-   +'</div>';
+   +'<div class="sec-sub">入金前の案件を1件ずつ登録して後追い。ステータスを「入金完了／辞退」にすると一覧から外れます。</div>';
+  if(editable){
+    h+='<div class="deals-row">'
+     +'<div class="fld"><label>顧客名</label><input id="dl_cust" placeholder="◯◯さん"></div>'
+     +'<div class="fld"><label>合意日</label><input id="dl_date" type="date" value="'+todayStr()+'"></div>'
+     +'<div class="fld"><label>ステータス</label><select id="dl_status">'+STATUS_LIST.map(s=>'<option>'+s+'</option>').join('')+'</select></div>'
+     +'<div class="fld"><label>メモ</label><input id="dl_memo" placeholder="ローン審査待ち 等"></div>'
+     +'<div class="fld"><label>&nbsp;</label><button class="btn pink sm" onclick="addDeal(\''+cid+'\')">追加</button></div>'
+     +'</div>';
+  }
   if(my.length){
-    h+='<div class="scroll"><table class="tbl"><thead><tr><th class="name">顧客</th><th>合意日</th><th class="name">ステータス</th><th class="name">メモ</th><th></th></tr></thead><tbody>';
+    h+='<div class="scroll"><table class="tbl"><thead><tr><th class="name">顧客</th><th>合意日</th><th class="name">ステータス</th><th class="name">メモ</th>'+(editable?'<th></th>':'')+'</tr></thead><tbody>';
     my.forEach(d=>{ const done=d.status==='入金完了'||d.status==='辞退';
-      h+='<tr style="'+(done?'opacity:.5':'')+'"><td class="name">'+esc(d.customer)+'</td><td>'+fmtMD(d.deal_date)+'</td>'
-       +'<td style="text-align:left"><select onchange="setDealStatus(\''+d.id+'\',this.value)" style="font-size:12px;padding:4px 6px;border-radius:6px;border:1px solid #d5e0ee">'
-       +STATUS_LIST.map(s=>'<option'+(s===d.status?' selected':'')+'>'+s+'</option>').join('')+'</select></td>'
-       +'<td class="name" style="white-space:normal;color:var(--sub)">'+esc(d.memo||'')+'</td>'
-       +'<td><button class="btn line sm" onclick="delDeal(\''+d.id+'\')">削除</button></td></tr>';
+      h+='<tr style="'+(done?'opacity:.5':'')+'"><td class="name">'+esc(d.customer)+'</td><td>'+fmtMD(d.deal_date)+'</td>';
+      if(editable){
+        h+='<td style="text-align:left"><select onchange="setDealStatus(\''+d.id+'\',this.value)" style="font-size:12px;padding:4px 6px;border-radius:6px;border:1px solid #d5e0ee">'
+         +STATUS_LIST.map(s=>'<option'+(s===d.status?' selected':'')+'>'+s+'</option>').join('')+'</select></td>'
+         +'<td class="name" style="white-space:normal;color:var(--sub)">'+esc(d.memo||'')+'</td>'
+         +'<td><button class="btn line sm" onclick="delDeal(\''+d.id+'\')">削除</button></td>';
+      } else {
+        const sk=d.status==='ローン申請中'?'y':done?'n':'g';
+        h+='<td style="text-align:left"><span class="pill '+sk+'">'+esc(d.status)+'</span></td>'
+         +'<td class="name" style="white-space:normal;color:var(--sub)">'+esc(d.memo||'')+'</td>';
+      }
+      h+='</tr>';
     });
     h+='</tbody></table></div>';
   } else h+='<div class="empty">まだ案件はありません。</div>';
   h+='</div>';
 
-  // 直近の報告履歴
+  // 直近の報告履歴（閲覧は全員OK）
   const rs=monthReports(cid);
   h+='<div class="card"><h3><span class="bar"></span>今月の報告履歴</h3>';
   if(rs.length){
@@ -469,7 +572,7 @@ function renderCloser(cid){
   h+='</div>';
 
   // 目標設定（owner/exec のみ）
-  if(myRole==='owner'||myRole==='exec'){
+  if(isLead()){
     h+='<div class="card"><h3><span class="bar"></span>月間 成約目標の設定</h3>'
      +'<div class="deals-row" style="grid-template-columns:150px 130px auto">'
      +'<div class="fld"><label>対象月</label><input id="tg_ym" value="'+curYM()+'" readonly style="background:#f5f8fc"></div>'
@@ -501,6 +604,7 @@ function fillForm(cid){
 // 書き込み
 // ============================================================
 async function submitReport(cid){
+  if(!canEdit(cid)){ alert('このページは閲覧専用です。ご自身のタブから入力してください。'); return; }
   const g=id=>n(document.getElementById(id).value);
   const row={ closer_id:cid, report_date:document.getElementById('rp_date').value,
     meetings:g('rp_meetings'), instant_close:g('rp_instant'), closed:g('rp_closed'),
@@ -519,6 +623,7 @@ async function submitReport(cid){
   await loadAll();
 }
 async function setTarget(cid){
+  if(!isLead()) return;
   const val=n(document.getElementById('tg_val').value);
   const {error}=await sb.from('sc_targets').upsert({closer_id:cid,ym:curYM(),target_deals:val,updated_at:new Date().toISOString()},{onConflict:'closer_id,ym'});
   const msg=document.getElementById('tgMsg');
@@ -526,14 +631,15 @@ async function setTarget(cid){
   else { msg.className='msg ok'; msg.textContent='目標を保存しました。'; await loadAll(); }
 }
 async function addDeal(cid){
+  if(!canEdit(cid)) return;
   const cust=(document.getElementById('dl_cust').value||'').trim(); if(!cust){ return; }
   const row={ closer_id:cid, customer:cust, deal_date:document.getElementById('dl_date').value||null,
     status:document.getElementById('dl_status').value, memo:(document.getElementById('dl_memo').value||'').trim() };
   const {error}=await sb.from('sc_deals').insert(row);
   if(!error){ document.getElementById('dl_cust').value=''; document.getElementById('dl_memo').value=''; await loadAll(); }
 }
-async function setDealStatus(id,status){ await sb.from('sc_deals').update({status,updated_at:new Date().toISOString()}).eq('id',id); await loadAll(); }
-async function delDeal(id){ if(!confirm('この案件を削除しますか？')) return; await sb.from('sc_deals').delete().eq('id',id); await loadAll(); }
+async function setDealStatus(id,status){ const d=deals.find(x=>x.id===id); if(d&&!canEdit(d.closer_id)) return; await sb.from('sc_deals').update({status,updated_at:new Date().toISOString()}).eq('id',id); await loadAll(); }
+async function delDeal(id){ const d=deals.find(x=>x.id===id); if(d&&!canEdit(d.closer_id)) return; if(!confirm('この案件を削除しますか？')) return; await sb.from('sc_deals').delete().eq('id',id); await loadAll(); }
 
 // ============================================================
 // Slack 連携（GAS Web App 経由）
