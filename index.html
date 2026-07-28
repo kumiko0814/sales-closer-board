@@ -149,6 +149,10 @@ header .wrap{padding-bottom:0;display:flex;align-items:center;gap:14px;flex-wrap
 .modal ol,.modal ul{padding-left:20px;margin:4px 0}
 .modal .x{float:right;border:none;background:#eef2f7;width:30px;height:30px;border-radius:8px;font-size:16px;cursor:pointer;color:var(--sub)}
 .modal .note{background:#fbeef1;border:1px solid #f2d6dd;border-radius:10px;padding:10px 13px;color:#8a4a58;font-size:13px;margin-top:14px}
+/* バグ報告 */
+.btn-bug{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.3);padding:5px 12px;border-radius:8px;font-size:12px;cursor:pointer;font-family:inherit}
+.btn-bug:hover{background:rgba(255,255,255,.22)}
+.bug-badge{display:inline-block;min-width:17px;height:17px;line-height:17px;text-align:center;background:#dc2626;color:#fff;border-radius:9px;font-size:11px;font-weight:800;padding:0 5px;margin-left:4px}
 </style>
 </head>
 <body>
@@ -177,6 +181,8 @@ header .wrap{padding-bottom:0;display:flex;align-items:center;gap:14px;flex-wrap
     <div class="hd-right">
       <span class="conn"><span class="dot" id="connDot"></span><span id="connTxt">接続中…</span></span>
       <span id="authUser"></span>
+      <button class="btn-bug" id="bugListBtn" onclick="openBugList()" style="display:none">🐛一覧<span class="bug-badge" id="bugBadge" style="display:none">0</span></button>
+      <button class="btn-bug" onclick="openBugReport()" title="バグ報告（今の画面状況も自動で一緒に記録されます）">🐛 バグ報告</button>
       <button class="btn-help" onclick="openHelp()">？使い方</button>
       <button class="btn-ghost" onclick="logout()">ログアウト</button>
     </div>
@@ -221,6 +227,37 @@ header .wrap{padding-bottom:0;display:flex;align-items:center;gap:14px;flex-wrap
   </div>
 </div>
 
+<!-- 🐛 バグ報告モーダル -->
+<div class="modal" id="bugModal" onclick="if(event.target===this)closeBugReport()">
+  <div class="sheet">
+    <button class="x" onclick="closeBugReport()">×</button>
+    <h2>🐛 バグ報告</h2>
+    <p class="muted">送信すると、<b>今の画面状況（ログイン中の人・開いているタブ・直近のエラーなど）も自動で一緒に記録</b>されます。だから「うまく動かない」だけでも大丈夫。気づいたことを気軽に書いてください☺️♡</p>
+    <div class="fld" style="margin-top:12px"><textarea id="bugDesc" rows="5" placeholder="例：稼働中なのに『対応中』ボタンを押すと『稼働時間外』と出る。20:00のシフトは登録済み。◯◯の操作で起きた 等" onfocus="editing=true" onblur="editing=false"></textarea></div>
+    <div style="margin-top:10px">
+      <button class="btn line sm" onclick="document.getElementById('bugFile').click()">📷 画像を添付（最大2枚）</button>
+      <span class="muted">　または Ctrl+V で貼り付け</span>
+      <input id="bugFile" type="file" accept="image/*" multiple style="display:none" onchange="_addBugImages(this.files);this.value=''">
+    </div>
+    <div id="bugPreviews" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"></div>
+    <div style="margin-top:16px;display:flex;gap:10px;justify-content:flex-end;align-items:center">
+      <button class="btn line" onclick="closeBugReport()">キャンセル</button>
+      <button class="btn" id="bugSendBtn" style="background:#dc2626" onclick="submitBugReport()">送信する</button>
+    </div>
+    <div class="msg" id="bugMsg"></div>
+  </div>
+</div>
+
+<!-- 🐛 バグ報告一覧（管理者のみ） -->
+<div class="modal" id="bugListModal" onclick="if(event.target===this)closeBugList()">
+  <div class="sheet" style="max-width:760px">
+    <button class="x" onclick="closeBugList()">×</button>
+    <h2>🐛 バグ報告一覧</h2>
+    <p class="muted">クローザーから届いた報告。開いた時点で既読になります。画像は「表示」を押した時だけ読み込みます。</p>
+    <div id="bugListBody" style="margin-top:12px"></div>
+  </div>
+</div>
+
 <div class="tabbar"><div class="wrap" id="tabbar"></div></div>
 
 <div class="wrap">
@@ -252,6 +289,16 @@ let activeTab='__sum__', started=false, editing=false;
 if(SUPABASE_CONFIG.enabled && window.supabase){
   sb=window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey);
 }
+// 🐛 直近JSエラーを常時バッファ（バグ報告時に添付）
+let _recentErrors=[], _bugImages=[], bugReports=[], _autoReported={};
+function _nowStr(){ const d=new Date(),p=x=>String(x).padStart(2,'0');
+  return d.getFullYear()+'/'+p(d.getMonth()+1)+'/'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes()); }
+function _logClientError(kind,msg,where){ try{
+  _recentErrors.push({ kind, msg:String(msg).slice(0,500), where: where?String(where).slice(0,300):undefined, at:_nowStr() });
+  if(_recentErrors.length>30) _recentErrors.shift();
+}catch(e){} }
+window.addEventListener('error',e=>_logClientError('error',e.message,(e.filename||'')+':'+(e.lineno||'')));
+window.addEventListener('unhandledrejection',e=>_logClientError('unhandledrejection',(e.reason&&e.reason.message)||e.reason));
 function setConn(ok,txt){ document.getElementById('connDot').classList.toggle('off',!ok);
   document.getElementById('connTxt').textContent=txt||(ok?'接続OK':'未接続'); }
 
@@ -332,9 +379,14 @@ async function loadAll(){
       const ap=await sb.from('sc_appointments').select('*').gte('start_at',t0.toISOString()).order('start_at');
       appts=ap&&ap.data||[];
     }catch(e){ /* 予約テーブル未導入 */ }
+    // 🐛 バグ報告（管理者のみ取得してアラート更新）
+    if(isLead()){ try{
+      const br=await sb.from('sc_bug_reports').select('id,description,bug_user,page,ts,time_str,image_count,recent_errors,env,app_state').order('ts',{ascending:false}).limit(200);
+      bugReports=br&&br.data||[];
+    }catch(e){ /* バグ報告テーブル未導入 */ } }
     setConn(true,'接続OK・'+curYM());
     render();
-  }catch(e){ setConn(false,'読込エラー'); console.error(e); }
+  }catch(e){ setConn(false,'読込エラー'); console.error(e); _autoReportBug('データ読込エラー', String(e&&e.message||e)); }
 }
 function startBoard(){
   if(started) return; started=true;
@@ -430,6 +482,7 @@ function render(){
   const v=document.getElementById('view');
   v.innerHTML = activeTab==='__sum__' ? renderSummary() : renderCloser(activeTab);
   if(activeTab!=='__sum__') fillForm(activeTab);
+  renderBugAlert();
 }
 
 function achievePill(p){ const k=p>=100?'g':p>=70?'y':'r'; return '<span class="pill '+k+'">'+p+'%</span>'; }
@@ -852,6 +905,138 @@ async function reportMonthly(cid){
   btn.disabled=false; btn.textContent='この内容でマーケ03に報告';
   msg.className='msg '+(r===true?'ok':'err');
   msg.textContent = r===true?'マーケ03に報告しました。' : (r==='off'?'Slack連携が未設定です。':'投稿失敗：'+r);
+}
+
+// ============================================================
+// 🐛 バグ報告（画面状況・直近エラーを自動採取）
+// ============================================================
+const _bugSafe = fn => { try{ return fn(); }catch(e){ return '(取得失敗)'; } };
+const _bugClone = v => { try{ return JSON.parse(JSON.stringify(v)); }catch(e){ return '(取得失敗)'; } };
+function _currentPageName(){ if(activeTab==='__sum__') return '集計（チーム）';
+  const c=closers.find(x=>x.id===activeTab); return c?c.name+' タブ':activeTab; }
+
+function openBugReport(){ _bugImages=[]; renderBugImagePreviews();
+  const d=document.getElementById('bugDesc'); if(d) d.value='';
+  const m=document.getElementById('bugMsg'); if(m){ m.textContent=''; m.className='msg'; }
+  document.getElementById('bugModal').classList.add('on'); editing=true;
+  setTimeout(()=>{ const t=document.getElementById('bugDesc'); if(t) t.focus(); },100); }
+function closeBugReport(){ document.getElementById('bugModal').classList.remove('on'); _bugImages=[]; editing=false; }
+
+// Ctrl+V 貼り付け（バグモーダルが開いている時だけ）
+document.addEventListener('paste',e=>{
+  const m=document.getElementById('bugModal'); if(!m||!m.classList.contains('on')) return;
+  const items=(e.clipboardData||{}).items||[]; const files=[];
+  for(let i=0;i<items.length;i++){ if(items[i].type&&items[i].type.indexOf('image')===0){ const f=items[i].getAsFile(); if(f) files.push(f); } }
+  if(files.length){ e.preventDefault(); _addBugImages(files); }
+});
+
+const BUG_IMG_MAX=2, BUG_IMG_MAX_EDGE=1280;
+function _compressBugImage(file){ return new Promise((resolve,reject)=>{
+  const url=URL.createObjectURL(file), img=new Image();
+  img.onload=()=>{ URL.revokeObjectURL(url);
+    const scale=Math.min(1, BUG_IMG_MAX_EDGE/Math.max(img.width,img.height));
+    const cv=document.createElement('canvas'); cv.width=Math.max(1,Math.round(img.width*scale)); cv.height=Math.max(1,Math.round(img.height*scale));
+    cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height);
+    let out=cv.toDataURL('image/jpeg',0.75); if(out.length>500*1024) out=cv.toDataURL('image/jpeg',0.5); resolve(out); };
+  img.onerror=()=>{ URL.revokeObjectURL(url); reject(new Error('画像を読み込めませんでした')); };
+  img.src=url; }); }
+async function _addBugImages(files){
+  files=Array.from(files||[]); const msg=document.getElementById('bugMsg');
+  for(const f of files){ if(_bugImages.length>=BUG_IMG_MAX){ if(msg){ msg.className='msg err'; msg.textContent='添付は最大'+BUG_IMG_MAX+'枚までです。'; } break; }
+    try{ _bugImages.push(await _compressBugImage(f)); }catch(e){ if(msg){ msg.className='msg err'; msg.textContent='画像の読み込みに失敗しました。'; } } }
+  renderBugImagePreviews(); }
+function removeBugImage(i){ _bugImages.splice(i,1); renderBugImagePreviews(); }
+function renderBugImagePreviews(){ const box=document.getElementById('bugPreviews'); if(!box) return;
+  box.innerHTML=_bugImages.map((src,i)=>'<div style="position:relative">'
+   +'<img src="'+(String(src).startsWith('data:image/')?src:'')+'" style="width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid #d5e0ee">'
+   +'<button onclick="removeBugImage('+i+')" style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;border:none;background:#dc2626;color:#fff;font-size:12px;cursor:pointer;line-height:1">×</button></div>').join(''); }
+
+function collectBugDiagnostics(description){
+  return {
+    description: description,
+    bug_user: currentEmail||'(不明)',
+    page: _bugSafe(_currentPageName),
+    ts: Date.now(),
+    time_str: _nowStr(),
+    recent_errors: _recentErrors.slice(-15),
+    env: _bugSafe(()=>({ url:location.href, userAgent:navigator.userAgent, language:navigator.language, platform:navigator.platform,
+      screen:screen.width+'x'+screen.height, window:window.innerWidth+'x'+window.innerHeight, dpr:window.devicePixelRatio,
+      online:navigator.onLine, tzOffsetMin:new Date().getTimezoneOffset(), localTime:new Date().toString() })),
+    app_state: {
+      role:myRole, activeTab:activeTab, myCloser:_bugSafe(myCloserId), editing:editing, started:started,
+      closers:_bugSafe(()=>closers.length), deals:_bugSafe(()=>deals.length),
+      openDeals:_bugSafe(()=>deals.filter(isOpenDeal).length), reports:_bugSafe(()=>reports.length),
+      appts:_bugSafe(()=>appts.length), mstatsKeys:_bugSafe(()=>Object.keys(mstats)),
+      syncMeta:_bugClone(syncMeta), curYM:_bugSafe(curYM) }
+  };
+}
+async function submitBugReport(){
+  const desc=(document.getElementById('bugDesc').value||'').trim();
+  const msg=document.getElementById('bugMsg');
+  if(!desc){ msg.className='msg err'; msg.textContent='内容を入力してください。'; return; }
+  if(!sb){ msg.className='msg err'; msg.textContent='DB未接続のため送信できません。'; return; }
+  const btn=document.getElementById('bugSendBtn'); btn.disabled=true; btn.textContent='送信中…';
+  const diag=collectBugDiagnostics(desc); diag.image_count=_bugImages.length;
+  const imgs=_bugImages.slice();
+  try{
+    const {data,error}=await sb.from('sc_bug_reports').insert(diag).select('id').single(); // ← 本体を先に保存
+    if(error) throw error;
+    if(imgs.length){ try{ await sb.from('sc_bug_images').insert({report_id:data.id, images:imgs, bug_user:currentEmail||'', ts:Date.now()}); }
+      catch(e){ /* 画像だけ失敗しても本体は残る */ } }
+    msg.className='msg ok'; msg.textContent='バグ報告を送信しました。ありがとうございます！この時の画面状況も一緒に記録したので、後ほど確認して対応します。';
+    _bugImages=[]; renderBugImagePreviews(); document.getElementById('bugDesc').value='';
+    setTimeout(closeBugReport,1800);
+  }catch(e){ msg.className='msg err'; msg.textContent='送信エラー：'+(e.message||e); }
+  btn.disabled=false; btn.textContent='送信する';
+}
+// 異常を検知したらシステム自身が自動報告（セッション中1種1回まで）
+async function _autoReportBug(reason, detail){
+  if(_autoReported[reason]||!sb||!currentEmail) return; _autoReported[reason]=true;
+  try{ const diag=collectBugDiagnostics('[自動検知] '+reason+(detail?'：'+detail:'')); diag.image_count=0;
+    await sb.from('sc_bug_reports').insert(diag); }catch(e){}
+}
+
+// ---- 管理者（森川・清水）向け：未読アラート＋一覧 ----
+function _bugReadSet(){ try{ return new Set(JSON.parse(localStorage.getItem('sc_bug_read_'+(currentEmail||''))||'[]')); }catch(e){ return new Set(); } }
+function _bugSaveRead(set){ try{ localStorage.setItem('sc_bug_read_'+(currentEmail||''), JSON.stringify(Array.from(set))); }catch(e){} }
+function renderBugAlert(){
+  const listBtn=document.getElementById('bugListBtn'), badge=document.getElementById('bugBadge'); if(!listBtn) return;
+  if(!isLead()){ listBtn.style.display='none'; return; }
+  listBtn.style.display='';
+  const read=_bugReadSet(); const unread=bugReports.filter(b=>!read.has(b.id)).length;
+  if(unread>0){ badge.style.display=''; badge.textContent=unread; } else { badge.style.display='none'; }
+}
+function openBugList(){
+  const read=_bugReadSet(); const body=document.getElementById('bugListBody');
+  if(!bugReports.length){ body.innerHTML='<div class="empty">まだバグ報告はありません。</div>'; }
+  else body.innerHTML=bugReports.map(b=>_bugCard(b,read.has(b.id))).join('');
+  const ns=new Set(read); bugReports.forEach(b=>ns.add(b.id)); _bugSaveRead(ns); renderBugAlert(); // 開いた時点で全既読
+  document.getElementById('bugListModal').classList.add('on');
+}
+function closeBugList(){ document.getElementById('bugListModal').classList.remove('on'); }
+function _bugCard(b, wasRead){
+  const env=b.env||{}, ap=b.app_state||{}, errs=(b.recent_errors||[]).slice(-2);
+  let h='<div style="border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:12px;background:#fff">';
+  h+='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">'
+   +(wasRead?'':'<span class="pill r" style="background:#dc2626;color:#fff">NEW</span>')
+   +'<b style="color:var(--navy)">'+esc(b.bug_user||'(不明)')+'</b>'
+   +'<span class="muted">'+esc(b.time_str||'')+'　['+esc(b.page||'')+']</span></div>';
+  h+='<div style="white-space:pre-wrap;font-size:14px;line-height:1.7">'+esc(b.description||'')+'</div>';
+  h+='<div class="muted" style="margin-top:8px;font-size:11.5px">role:'+esc(ap.role||'')+' / tab:'+esc(ap.activeTab||'')
+   +' / 追客'+esc(ap.openDeals!=null?ap.openDeals:'-')+'件 / '+esc(env.window||'')+' / '+esc(String(env.userAgent||'').slice(0,64))+'</div>';
+  if(errs.length) h+='<div style="margin-top:6px;font-size:11.5px;color:#c05a5a;white-space:pre-wrap">直近エラー：'
+   +esc(errs.map(e=>(e.kind||'')+' '+(e.msg||'')).join(' / '))+'</div>';
+  if(b.image_count>0) h+='<div style="margin-top:8px"><button class="btn line sm" onclick="loadBugImages(\''+esc(b.id)+'\',this)">🖼 画像を表示（'+n(b.image_count)+'枚）</button><div class="bugImgs" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"></div></div>';
+  return h+'</div>';
+}
+async function loadBugImages(id, btn){
+  btn.disabled=true; btn.textContent='読み込み中…';
+  try{ const {data,error}=await sb.from('sc_bug_images').select('images').eq('report_id',id).single(); if(error) throw error;
+    const box=btn.parentNode.querySelector('.bugImgs');
+    const imgs=((data&&data.images)||[]).filter(s=>typeof s==='string'&&s.startsWith('data:image/'));
+    box.innerHTML=imgs.map(s=>'<img src="'+s+'" style="max-width:220px;border-radius:8px;border:1px solid #d5e0ee;cursor:zoom-in" onclick="this.style.maxWidth=this.style.maxWidth===\'none\'?\'220px\':\'none\'">').join('')||'<span class="muted">画像がありません。</span>';
+    btn.style.display='none';
+  }catch(e){ btn.disabled=false; btn.textContent='🖼 画像を表示（再試行）'; }
 }
 
 // ============================================================
