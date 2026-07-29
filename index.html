@@ -977,11 +977,14 @@ async function submitBugReport(){
   if(!sb){ msg.className='msg err'; msg.textContent='DB未接続のため送信できません。'; return; }
   const btn=document.getElementById('bugSendBtn'); btn.disabled=true; btn.textContent='送信中…';
   const diag=collectBugDiagnostics(desc); diag.image_count=_bugImages.length;
+  // IDをクライアント側で発行（保存後の読み返し＝SELECT権限を不要にする。クローザーは閲覧不可のため）
+  const rid=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():('r'+Date.now()+Math.random().toString(16).slice(2));
+  diag.id=rid;
   const imgs=_bugImages.slice();
   try{
-    const {data,error}=await sb.from('sc_bug_reports').insert(diag).select('id').single(); // ← 本体を先に保存
+    const {error}=await sb.from('sc_bug_reports').insert(diag); // ← 本体を先に保存（return=minimal）
     if(error) throw error;
-    if(imgs.length){ try{ await sb.from('sc_bug_images').insert({report_id:data.id, images:imgs, bug_user:currentEmail||'', ts:Date.now()}); }
+    if(imgs.length){ try{ await sb.from('sc_bug_images').insert({report_id:rid, images:imgs, bug_user:currentEmail||'', ts:Date.now()}); }
       catch(e){ /* 画像だけ失敗しても本体は残る */ } }
     msg.className='msg ok'; msg.textContent='バグ報告を送信しました。ありがとうございます！この時の画面状況も一緒に記録したので、後ほど確認して対応します。';
     _bugImages=[]; renderBugImagePreviews(); document.getElementById('bugDesc').value='';
