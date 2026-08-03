@@ -986,6 +986,10 @@ async function submitBugReport(){
     if(error) throw error;
     if(imgs.length){ try{ await sb.from('sc_bug_images').insert({report_id:rid, images:imgs, bug_user:currentEmail||'', ts:Date.now()}); }
       catch(e){ /* 画像だけ失敗しても本体は残る */ } }
+    // 自動修正パトロール用ミラー（ailab_notesはbug_プレフィクスで巡回・kanri受信箱にも載る。失敗しても本体は成功扱い）
+    try{ await sb.from('ailab_notes').insert({ member_id:'bug_sales-closer-board', member_name:'クローザーボード｜'+(currentEmail||'不明'),
+      mood:'バグ報告', worry:desc+(imgs.length?('（画像'+imgs.length+'枚あり）'):''),
+      want:location.href.slice(0,180)+' ／ '+navigator.userAgent.slice(0,140)+' ／ 詳細id='+rid }); }catch(e){}
     msg.className='msg ok'; msg.textContent='バグ報告を送信しました。ありがとうございます！この時の画面状況も一緒に記録したので、後ほど確認して対応します。';
     _bugImages=[]; renderBugImagePreviews(); document.getElementById('bugDesc').value='';
     setTimeout(closeBugReport,1800);
