@@ -286,6 +286,16 @@ function syncBadge(){
 }
 let activeTab='__sum__', started=false, editing=false;
 
+// 入力ドラフト保持：タブ切替・6秒自動更新の再描画で入力中テキストが消えないようにする
+let drafts={};
+function _saveDraft(id,v){ drafts[activeTab+'|'+id]=v; }
+document.addEventListener('input',e=>{ const t=e.target; if(t&&t.id&&/^(dl_|rp_)/.test(t.id)) _saveDraft(t.id,t.value); });
+document.addEventListener('change',e=>{ const t=e.target; if(t&&t.id&&/^(dl_|rp_)/.test(t.id)) _saveDraft(t.id,t.value); });
+function restoreDrafts(){ Object.keys(drafts).forEach(k=>{ const i=k.indexOf('|'); if(k.slice(0,i)!==activeTab) return;
+  const e=document.getElementById(k.slice(i+1)); if(e) e.value=drafts[k]; }); }
+function clearDrafts(prefix){ Object.keys(drafts).forEach(k=>{ const i=k.indexOf('|');
+  if(k.slice(0,i)===activeTab && k.slice(i+1).startsWith(prefix)) delete drafts[k]; }); }
+
 if(SUPABASE_CONFIG.enabled && window.supabase){
   sb=window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey);
 }
@@ -332,9 +342,18 @@ async function sendMagic(){
 async function evalSession(session){
   if(session && session.user){
     const email=(session.user.email||'').toLowerCase();
-    let ok=false, role='closer';
-    try{ const {data}=await sb.from('sc_access').select('role_hint').eq('email',email).maybeSingle();
-      if(data){ ok=true; role=data.role_hint||'closer'; } }catch(e){ ok=false; }
+    // 検証済みセッションの再イベント（トークン更新・タブ復帰等）は再チェックしない＝誤ログアウト防止
+    if(started && currentEmail===email){ hideGate(); return; }
+    let ok=false, role='closer', netFail=false;
+    for(let i=0;i<2 && !ok;i++){
+      try{ const {data,error}=await sb.from('sc_access').select('role_hint').eq('email',email).maybeSingle();
+        if(error) throw error; netFail=false;
+        if(data){ ok=true; role=data.role_hint||'closer'; }
+      }catch(e){ netFail=true; }
+    }
+    // 一時的な通信エラーではログアウトさせない（権限なしが確定した時だけsignOut）
+    if(!ok && netFail){ showGate(); resetAuth();
+      authMsg('通信エラーで確認できませんでした。ログインは保持されています。数秒おいてページを再読み込みしてください。','err'); return; }
     if(!ok){ await sb.auth.signOut(); showGate(); resetAuth();
       authMsg('このダッシュボードへのアクセス権限がありません。くみこさん／管理部にご確認ください。','err'); return; }
     currentEmail=email; myRole=role;
@@ -482,6 +501,7 @@ function render(){
   const v=document.getElementById('view');
   v.innerHTML = activeTab==='__sum__' ? renderSummary() : renderCloser(activeTab);
   if(activeTab!=='__sum__') fillForm(activeTab);
+  restoreDrafts(); // 保存済みデータの復元より入力中ドラフトを優先
   renderBugAlert();
 }
 
@@ -589,7 +609,7 @@ function apTime(iso){ const d=new Date(iso); return String(d.getHours()).padStar
 // 「結果を入力」→ 面談報告フォームに予約者・アライアンス・リンクを自動入力してスクロール
 function fillReportFromAppt(custEnc, alliance, urlEnc){
   const cust=decodeURIComponent(custEnc||''), url=decodeURIComponent(urlEnc||'');
-  const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.value=v; };
+  const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.value=v; _saveDraft(id,v); };
   set('dl_cust',cust); set('dl_alliance',alliance||''); set('dl_proline',url);
   editing=true;
   const card=document.getElementById('reportCard'); if(card) card.scrollIntoView({behavior:'smooth',block:'start'});
@@ -598,6 +618,10 @@ function fillReportFromAppt(custEnc, alliance, urlEnc){
 function renderAppointments(cid){
   let list=(appts||[]).filter(a=>a.start_at && closers.some(c=>c.id===a.closer_id)); // ロスター内のみ
   if(cid) list=list.filter(a=>a.closer_id===cid);
+  // 重複除去：シート同期とプロライン通知の両輪が同じ予約を別レコードで書くため（担当×予約者×開始時刻で1件に・リンク持ちを優先）
+  { const seen={}; list.forEach(a=>{ const k=(a.closer_id||'')+'|'+String(a.customer||'').trim()+'|'+new Date(a.start_at).getTime();
+      const b=seen[k]; if(!b || (!b.proline_url && a.proline_url) || (b.status!=='キャンセル' && a.status==='キャンセル')) seen[k]=a; });
+    list=Object.values(seen); }
   list=list.sort((a,b)=> a.start_at<b.start_at?-1:1);
   const todayN=list.filter(a=>apDayLabel(a.start_at)==='今日' && a.status!=='キャンセル').length;
   let h='<div class="card"><h3><span class="bar"></span>面談予定（プロライン予約）</h3>'
@@ -614,7 +638,7 @@ function renderAppointments(cid){
     h+='<tr style="'+(cancel?'opacity:.55':'')+'"><td class="name">'+apDayLabel(a.start_at)+'</td>'
      +'<td>'+apTime(a.start_at)+(a.end_at?'〜'+apTime(a.end_at):'')+'</td>'
      +'<td class="name">'+allianceCell({alliance:a.alliance})+'</td>'
-     +'<td class="name">'+esc(a.customer)+'</td>'
+     +'<td class="name">'+(a.proline_url?'<a href="'+esc(a.proline_url)+'" target="_blank" rel="noopener" style="color:var(--navy2);font-weight:700">'+esc(a.customer)+'↗</a>':esc(a.customer))+'</td>'
      +(cid?'':'<td class="name">'+esc(c?c.name:(a.closer_id||'—'))+'</td>')
      +'<td style="text-align:left"><span class="pill '+sk+'">'+esc(stLabel)+'</span></td>'
      +'<td style="text-align:center">'+prolineCell({proline_url:a.proline_url})+'</td>'
@@ -725,7 +749,7 @@ function renderCloser(cid){
      +'<div class="fld"><label>合意日</label><input id="dl_date" type="date" value="'+todayStr()+'"'+EF+'></div>'
      +'<div class="fld"><label>ステータス</label><select id="dl_status"'+EF+'>'+STATUS_LIST.map(s=>'<option>'+s+'</option>').join('')+'</select></div>'
      +'<div class="fld"><label>プロラインURL（任意）</label><input id="dl_proline" placeholder="https://..../pgc/chat/..."'+EF+'></div>'
-     +'<div class="fld"><label>メモ</label><input id="dl_memo" placeholder="ローン審査待ち 等"'+EF+'></div>'
+     +'<div class="fld"><label>メモ</label><textarea id="dl_memo" rows="2" placeholder="ローン審査待ち 等（改行OK）"'+EF+'></textarea></div>'
      +'<div class="fld"><label>&nbsp;</label><button class="btn pink sm" onclick="addDeal(\''+cid+'\')">追加</button></div>'
      +'</div>';
   }
@@ -737,13 +761,13 @@ function renderCloser(cid){
         h+='<td style="text-align:left"><select onchange="setDealStatus(\''+d.id+'\',this.value)" style="font-size:12px;padding:4px 6px;border-radius:6px;border:1px solid #d5e0ee">'
          +STATUS_LIST.map(s=>'<option'+(s===d.status?' selected':'')+'>'+s+'</option>').join('')+'</select></td>'
          +'<td style="text-align:center">'+prolineCell(d)+'</td>'
-         +'<td class="name" style="white-space:normal;color:var(--sub)">'+esc(d.memo||'')+'</td>'
+         +'<td class="name" style="white-space:pre-wrap;color:var(--sub)">'+esc(d.memo||'')+'</td>'
          +'<td><button class="btn line sm" onclick="delDeal(\''+d.id+'\')">削除</button></td>';
       } else {
         const sk=d.status==='ローン申請中'?'y':done?'n':'g';
         h+='<td style="text-align:left"><span class="pill '+sk+'">'+esc(d.status)+'</span></td>'
          +'<td style="text-align:center">'+prolineCell(d)+'</td>'
-         +'<td class="name" style="white-space:normal;color:var(--sub)">'+esc(d.memo||'')+'</td>';
+         +'<td class="name" style="white-space:pre-wrap;color:var(--sub)">'+esc(d.memo||'')+'</td>';
       }
       h+='</tr>';
     });
@@ -759,7 +783,7 @@ function renderCloser(cid){
      +PIPE.map(p=>'<th>'+p[1].replace('〜','〜<br>')+'</th>').join('')+'<th class="name">メモ</th></tr></thead><tbody>';
     rs.forEach(r=>{ h+='<tr><td class="name">'+fmtMD(r.report_date)+'</td><td class="big">'+n(r.meetings)+'</td><td>'+n(r.instant_close)+'</td><td class="big">'+n(r.closed)+'</td>'
       +PIPE.map(p=>'<td>'+n(r[p[0]])+'</td>').join('')
-      +'<td class="name" style="white-space:normal;color:var(--sub);max-width:220px">'+esc(r.note||'')+'</td></tr>'; });
+      +'<td class="name" style="white-space:pre-wrap;color:var(--sub);max-width:220px">'+esc(r.note||'')+'</td></tr>'; });
     h+='</tbody></table></div>';
   } else h+='<div class="empty">今月の報告はまだありません。</div>';
   h+='</div>';
@@ -808,7 +832,7 @@ async function submitReport(cid){
   const {error}=await sb.from('sc_reports').upsert(row,{onConflict:'closer_id,report_date'});
   btn.disabled=false; btn.textContent='報告を送信';
   if(error){ msg.className='msg err'; msg.textContent='保存エラー：'+error.message; return; }
-  editing=false;
+  editing=false; clearDrafts('rp_');
   msg.className='msg ok'; msg.textContent='保存しました。';
   postToSlack(cid,row).then(r=>{ if(r===true) msg.textContent='保存＆Slack投稿しました。';
     else if(r==='off') msg.textContent='保存しました（Slack連携は未設定）。';
@@ -832,7 +856,7 @@ async function addDeal(cid){
     proline_url:gv('dl_proline'), alliance:gv('dl_alliance') };
   const {error}=await sb.from('sc_deals').insert(row);
   if(error){ alert('保存エラー：'+error.message); return; }
-  editing=false;
+  editing=false; clearDrafts('dl_');
   // ② マーケ07_プロライン運営の面談報告スレへ自動投稿
   const c=closers.find(x=>x.id===cid)||{};
   postSlackTo(meetingReportText(row, c.name), c.slack_id||'', 'C0AMCR2SH2Q', '面談後全体報告');
