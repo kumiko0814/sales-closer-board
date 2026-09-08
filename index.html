@@ -276,7 +276,7 @@ const PIPE=[
   ['p_before','面談前'],['p_after','面談後〜判断前'],['p_verbal','口頭合意〜入金前'],
   ['p_loan','ローン申請中'],['p_sched','日程調整中'],['p_resched','リスケ'],['p_cooloff','クーリングオフ対応中']
 ];
-let closers=[], targets={}, reports=[], deals=[], mstats={}, syncMeta=null, appts=[];
+let closers=[], targets={}, reports=[], deals=[], mstats={}, syncMeta=null, appts=[], openCases=[];
 // ボードから外すクローザー（くみこ指示 2026-09-08: 永田さんを削除）。DBの active フラグは残っているため、恒久化するなら sc_closers.active=false
 const HIDDEN_CLOSERS=['nagata'];
 function hasSync(){ return Object.keys(mstats).some(k=>k.charAt(0)!=='_'); } // _oc_* は合成行なので除外
@@ -391,6 +391,8 @@ async function loadAll(){
         sb.from('sc_sync_meta').select('*').eq('id','sheet').maybeSingle()
       ]);
       (ms&&ms.data||[]).forEach(x=>mstats[x.closer_id]=x);
+      // 追客リスト（シート起点）。テーブル未作成/空なら従来の手入力リストにフォールバック
+      try{ const {data:ocs}=await sb.from('sc_open_cases').select('*').eq('ym',curYM()); openCases=ocs||[]; }catch(e){ openCases=[]; }
       syncMeta=mt&&mt.data||null;
     }catch(e){ /* 自動連携テーブル未導入 */ }
     // プロライン面談予約（今日0:00以降）※テーブル未作成でもエラーにしない
@@ -655,6 +657,10 @@ function renderSummary(){
   // 口頭合意 進捗一覧
   const od=deals.filter(isOpenDeal)
     .sort((a,b)=>(a.deal_date||'9')<(b.deal_date||'9')?-1:1);
+  if(openCases.length){
+    h+='<div class="card"><h3><span class="bar"></span>追客リスト（チーム全員）　<span class="muted">セールス管理シートから自動</span></h3>'+openCasesNote()+renderOpenCasesTable(openCases,true)+'</div>';
+    return h;
+  }
   h+='<div class="card"><h3><span class="bar"></span>口頭合意〜入金前の進捗（追客リスト）</h3>'
    +'<div class="sec-sub">各クローザーが個別に登録・後追いしている案件。入金完了/辞退で自動的にこの一覧から外れます。</div>';
   if(!od.length) h+='<div class="empty">追客中の個別案件はありません。</div>';
@@ -699,6 +705,34 @@ function kpiHero(l,v,sub,pct){ pct=Math.min(pct||0,100);
     +'<div class="pbar"><i style="width:'+pct+'%"></i></div><div class="sub">'+sub+'</div></div>'; }
 function kpi(l,v,sub){ return '<div class="kpi"><div class="lbl">'+l+'</div><div class="val">'+v+'</div><div class="sub">'+(sub||'')+'</div></div>'; }
 // プロライン ワンクリックリンク（口頭合意者へ即プッシュ）
+// ---- 追客リスト（セールス管理シート起点）----
+function roomOf(url){ const m=String(url||'').match(/\/([A-Za-z0-9_-]{6,})\s*$/); return m?m[1]:''; }
+function normName(s){ return String(s||'').replace(/[\s　]+/g,'').toLowerCase(); }
+function matchDeal(c){ // sc_deals（手入力）を部屋ID→名前の順で突合
+  const rid=c.room_id&&!c.room_id.startsWith('name:')?c.room_id:'';
+  let d=rid?deals.find(x=>roomOf(x.proline_url)===rid):null;
+  if(!d) d=deals.find(x=>normName(x.customer)===normName(c.customer) && normName(x.customer));
+  return d||null;
+}
+function bucketPill(b,st){ const cls=b==='pipe'?(/ローン/.test(st)?'y':'g'):(b==='wait'?'g':'n'); return '<span class="pill '+cls+'">'+esc(st||(b==='blank'?'結果未記入':b))+'</span>'; }
+function renderOpenCasesTable(list, showCloser){
+  if(!list.length) return '<div class="empty">追客中の案件はありません（シート上）。</div>';
+  const order={pipe:0,wait:1,blank:2};
+  list=list.slice().sort((a,b)=>(order[a.bucket]-order[b.bucket])||(b.days-a.days));
+  let h='<div class="scroll"><table class="tbl"><thead><tr><th class="name">アライアンス</th><th class="name">顧客</th>'+(showCloser?'<th class="name">担当</th>':'')+'<th>面談日</th><th>経過</th><th class="name">ステータス（シート）</th><th>プロライン</th><th class="name">ボードのメモ</th></tr></thead><tbody>';
+  list.forEach(c=>{ const cl=closers.find(x=>x.id===c.closer_id); const d=matchDeal(c);
+    const url=d&&d.proline_url?d.proline_url:(c.room_id&&!c.room_id.startsWith('name:')?('https://autosns.jp/chat#/room/'+c.room_id):'');
+    const late=c.bucket!=='blank'&&c.days>=4;
+    h+='<tr><td class="name">'+esc(c.alliance||'')+'</td><td class="name">'+esc(c.customer||'')+'</td>'+(showCloser?('<td class="name">'+esc(cl?cl.name:c.closer_id)+'</td>'):'')
+     +'<td>'+fmtMD(c.meeting_date)+'</td><td style="'+(late?'color:var(--bad);font-weight:700':'')+'">'+c.days+'日'+(late?' ⚠':'')+'</td>'
+     +'<td style="text-align:left">'+bucketPill(c.bucket,c.status)+'</td>'
+     +'<td style="text-align:center">'+(url?('<a href="'+esc(url)+'" target="_blank" rel="noopener" class="btn pink sm" style="text-decoration:none;white-space:nowrap;padding:4px 11px">プロライン↗</a>'):'<span class="muted">—</span>')+'</td>'
+     +'<td class="name" style="white-space:pre-wrap;color:var(--sub)">'+esc(d&&d.memo?d.memo:'')+'</td></tr>';
+  });
+  return h+'</tbody></table></div>';
+}
+function openCasesNote(){ return '<div class="sec-sub">セールス管理シートの「口頭合意〜入金前・ローン申請中・面談後〜判断前・長期戦」の行を自動で並べています（先月からの持ち越し含む・10分ごと更新）。ステータスはシートで更新してください。面談から4日以上は⚠（実測: 4日で成約確率17.6%まで低下）。「ボードのメモ」は下の面談報告で入れた内容です。</div>'; }
+
 function prolineCell(d){
   if(d && d.proline_url) return '<a href="'+esc(d.proline_url)+'" target="_blank" rel="noopener" class="btn pink sm" style="text-decoration:none;white-space:nowrap;padding:4px 11px">プロライン↗</a>';
   return '<span class="muted">—</span>';
@@ -843,6 +877,10 @@ function renderCloser(cid){
 
   // 口頭合意 個別案件マネージャ（追加は編集可の人だけ）
   const my=deals.filter(d=>d.closer_id===cid).sort((a,b)=>(a.deal_date||'9')<(b.deal_date||'9')?-1:1);
+  if(openCases.length){
+    const mine=openCases.filter(x=>x.closer_id===cid);
+    h+='<div class="card"><h3><span class="bar"></span>追客リスト（'+esc(c.name)+'さん）　<span class="muted">セールス管理シートから自動</span></h3>'+openCasesNote()+renderOpenCasesTable(mine,false)+'</div>';
+  }
   h+='<div class="card" id="reportCard"><h3><span class="bar"></span>面談報告を入力（→ 追客リスト＋Slackに自動反映）</h3>'
    +'<div class="sec-sub"><b>面談が終わったら、ここに結果を入力して「追加」を押すだけ。</b>上の「本日の面談」から「結果を入力」を押すと、顧客名・アライアンス・プロラインリンクが自動で入ります。あとは<b>結果（ステータス）</b>とメモを選んで「追加」。→ ①この追客リストに載る　②マーケ07_プロライン運営の面談報告スレへ自動投稿（Slack手打ち不要）。「入金完了／辞退」にすると追客リストから外れます。</div>';
   if(editable){
