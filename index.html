@@ -449,6 +449,17 @@ function closerStats(cid){
       verbalStock:n(m.p_verbal), verbalRate:Math.round(n(m.verbal_rate)), verbalClosed:n(m.verbal_closed),
       targetMeetings:n(m.target_meetings), openDealCount:od.length, lr:null };
   }
+  const oc=mstats['_oc_'+cid];
+  if(oc && n(oc.meetings)>0){ // シート直読み（月次集計表が未作成の月はこれが真実）
+    const target=n(targets[cid]);
+    const won=n(oc.closed), lost=n(oc.p_long), pipe=n(oc.p_verbal), wait=n(oc.p_after);
+    const dec=won+lost, inc=dec+pipe+wait;
+    return { auto:true, src:'sheet', meetings:n(oc.meetings), closed:won, instant:0, target,
+      rate: dec?Math.round(won/dec*100):0, rateInc: inc?Math.round(won/inc*100):0, instRate:0,
+      achieve: target?Math.round(won/target*100):0,
+      verbalStock:pipe, verbalRate:0, verbalClosed:0, targetMeetings:0, openDealCount:od.length, lr:null,
+      blank:n(oc.instant), wait, lost };
+  }
   const rs=monthReports(cid), lr=latestReport(cid);
   const meetings=sumField(rs,'meetings'), closed=sumField(rs,'closed'), instant=sumField(rs,'instant_close');
   const target=n(targets[cid]);
@@ -460,9 +471,18 @@ function closerStats(cid){
     verbalStock, openDealCount:od.length, lr };
 }
 function teamStats(){
-  let meetings=0,closed=0,instant=0,target=0,verbalStock=0;
-  closers.forEach(c=>{ const s=closerStats(c.id); meetings+=s.meetings;closed+=s.closed;instant+=s.instant;target+=s.target;verbalStock+=s.verbalStock; });
+  let meetings=0,closed=0,instant=0,target=0,verbalStock=0, lost=0, wait=0, anySheet=false;
+  closers.forEach(c=>{ const s=closerStats(c.id); meetings+=s.meetings;closed+=s.closed;instant+=s.instant;target+=s.target;verbalStock+=s.verbalStock; if(s.src==='sheet'){ anySheet=true; lost+=n(s.lost); wait+=n(s.wait);} });
   const override=n(targets['__team__']); if(override>0) target=override;
+  const all=mstats['_oc_all'];
+  if(all && n(all.meetings)>0){ // チーム合計はシート直読みの _oc_all を正とする（手入力報告の取りこぼしで数字が割れないように）
+    const won=n(all.closed), lostA=n(all.p_long), pipe=n(all.p_verbal), waitA=n(all.p_after);
+    const dec=won+lostA, inc=dec+pipe+waitA;
+    return { src:'sheet', meetings:n(all.meetings), closed:won, instant:0, target, verbalStock:pipe,
+      rate: dec?Math.round(won/dec*100):0, rateInc: inc?Math.round(won/inc*100):0, instRate:0,
+      achieve: target?Math.round(won/target*100):0, blank:n(all.instant),
+      openDealCount: deals.filter(d=>d.status!=='入金完了'&&d.status!=='辞退').length };
+  }
   return { meetings,closed,instant,target,verbalStock,
     rate: meetings?Math.round(closed/meetings*100):0,
     instRate: meetings?Math.round(instant/meetings*100):0,
@@ -586,8 +606,8 @@ function renderSummary(){
    +'<div class="kpis">'
    +kpiHero('月間 成約', s.closed, '目標 '+s.target+'件', s.achieve)
    +kpi('達成率', s.achieve+'<small>%</small>', '目標 '+s.target+'件')
-   +kpi('面談数', s.meetings+'<small>件</small>', '即決 '+s.instant+'件')
-   +kpi('成約率', s.rate+'<small>%</small>', '即決率 '+s.instRate+'%')
+   +kpi('面談数', s.meetings+'<small>件</small>', s.src==='sheet'?('シート直読み'+(s.blank?'・未記入'+s.blank:'')):('即決 '+s.instant+'件'))
+   +kpi('成約率', s.rate+'<small>%</small>', s.src==='sheet'?('決着ベース／判断待ち込み '+s.rateInc+'%'):('即決率 '+s.instRate+'%'))
    +kpiPink('口頭合意ストック', s.verbalStock+'<small>件</small>', '追客中の個別案件 '+s.openDealCount+'件')
    +'</div></div>';
   // 今月の成約率（シート直読み・両方の定義）
@@ -758,8 +778,8 @@ function renderCloser(cid){
    +'<div class="kpis">'
    +kpiHero('月間 成約', st.closed, '目標 '+st.target+'件', st.achieve)
    +kpi('達成率', (st.target?st.achieve:'—')+'<small>'+(st.target?'%':'')+'</small>', st.target?'目標 '+st.target+'件':'目標未設定')
-   +kpi('面談数', st.meetings+'<small>件</small>', '即決 '+st.instant+'件')
-   +kpi('成約率', (st.meetings?st.rate:'—')+'<small>'+(st.meetings?'%':'')+'</small>', '即決率 '+st.instRate+'%')
+   +kpi('面談数', st.meetings+'<small>件</small>', st.src==='sheet'?('シート直読み'+(st.blank?'・未記入'+st.blank:'')):('即決 '+st.instant+'件'))
+   +kpi('成約率', (st.meetings?st.rate:'—')+'<small>'+(st.meetings?'%':'')+'</small>', st.src==='sheet'?('決着ベース／判断待ち込み '+st.rateInc+'%'):('即決率 '+st.instRate+'%'))
    +kpiPink('口頭合意残', st.verbalStock+'<small>件</small>', '追客中 '+st.openDealCount+'件')
    +'</div></div>';
 
