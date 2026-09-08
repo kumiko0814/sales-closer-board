@@ -511,13 +511,13 @@ function ocRateCards(row){
    +'<div class="kpi hero"><div class="lbl">決着ベース 成約率</div><div class="val">'+ocRateTxt(row,'close')+'</div>'
    +'<div class="sub">決まった／決まらなかった人だけで計算</div></div>'
    +'<div class="kpi pink"><div class="lbl">判断待ち込み 成約率</div><div class="val">'+ocRateTxt(row,'verbal')+'</div>'
-   +'<div class="sub">口頭合意・ローン待ち・判断待ち・長期戦も分母に入れた率</div></div>'
+   +'<div class="sub">口頭合意（ローン申請中含む）・判断待ち・長期戦も分母に入れた率</div></div>'
    +'</div>';
 }
 function ocBreakdown(row){
   const un=n(row.instant);
   return '<div class="legend" style="font-size:13px;color:var(--ink)">'
-   +'実施 <b>'+n(row.meetings)+'</b>件　・　成約 <b>'+n(row.closed)+'</b>件　・　口頭合意/ローン待ち <b>'+n(row.p_verbal)+'</b>件'
+   +'実施 <b>'+n(row.meetings)+'</b>件　・　成約 <b>'+n(row.closed)+'</b>件　・　口頭合意（ローン申請中含む）<b>'+n(row.p_verbal)+'</b>件'
    +'　・　判断待ち <b>'+n(row.p_after)+'</b>件　・　失注 <b>'+n(row.p_long)+'</b>件'
    +'　・　結果未記入 <b'+(un>0?' style="color:var(--bad)"':'')+'>'+un+'</b>件</div>';
 }
@@ -557,7 +557,7 @@ function ocTeamStrip(){
    +'<div class="kpi"><div class="lbl">チーム 決着ベース</div><div class="val">'+ocRateTxt(all,'close')+'</div>'
    +'<div class="sub">成約'+won+'÷(成約'+won+'＋失注'+lost+')</div></div>'
    +'<div class="kpi"><div class="lbl">チーム 判断待ち込み</div><div class="val">'+ocRateTxt(all,'verbal')+'</div>'
-   +'<div class="sub">＋口頭合意/ローン待ち'+pipe+'＋判断待ち'+wait+'も分母</div></div>'
+   +'<div class="sub">＋口頭合意（ローン含む）'+pipe+'＋判断待ち'+wait+'も分母</div></div>'
    +'</div>'
    +'<div class="legend" style="font-size:12px;color:var(--ink)">チーム実施 <b>'+n(all.meetings)+'</b>件・成約 <b>'+won+'</b>件</div>';
 }
@@ -627,7 +627,7 @@ function renderSummary(){
    +kpi('達成率', s.achieve+'<small>%</small>', '目標 '+s.target+'件')
    +kpi('面談数', s.meetings+'<small>件</small>', s.src==='sheet'?('シート直読み'+(s.blank?'・未記入'+s.blank:'')):('即決 '+s.instant+'件'))
    +kpi('成約率', s.rate+'<small>%</small>', s.src==='sheet'?('決着ベース／判断待ち込み '+s.rateInc+'%'):('即決率 '+s.instRate+'%'))
-   +kpiPink('口頭合意ストック', s.verbalStock+'<small>件</small>', '追客中の個別案件 '+s.openDealCount+'件')
+   +kpiPink('口頭合意（ローン申請中含む）', s.verbalStock+'<small>件</small>', s.src==='sheet'?'セールス管理シート直読み':('追客中の個別案件 '+s.openDealCount+'件'))
    +'</div></div>';
   // 今月の成約率（シート直読み・両方の定義）
   h+=renderOcTeam();
@@ -731,7 +731,7 @@ function renderOpenCasesTable(list, showCloser){
   });
   return h+'</tbody></table></div>';
 }
-function openCasesNote(){ return '<div class="sec-sub">セールス管理シートの「口頭合意〜入金前・ローン申請中・面談後〜判断前・長期戦」の行を自動で並べています（先月からの持ち越し含む・10分ごと更新）。ステータスはシートで更新してください。面談から4日以上は⚠（実測: 4日で成約確率17.6%まで低下）。「ボードのメモ」は下の面談報告で入れた内容です。</div>'; }
+function openCasesNote(){ return '<div class="sec-sub">セールス管理シートの「口頭合意〜入金前・ローン申請中（＝口頭合意に含む）・面談後〜判断前・長期戦」の行を自動で並べています（先月からの持ち越し含む・10分ごと更新）。ステータスはシートで更新してください。面談から4日以上は⚠（実測: 4日で成約確率17.6%まで低下）。「ボードのメモ」は下の面談報告で入れた内容です。</div>'; }
 
 function prolineCell(d){
   if(d && d.proline_url) return '<a href="'+esc(d.proline_url)+'" target="_blank" rel="noopener" class="btn pink sm" style="text-decoration:none;white-space:nowrap;padding:4px 11px">プロライン↗</a>';
@@ -831,7 +831,7 @@ function renderCloser(cid){
    +kpi('達成率', (st.target?st.achieve:'—')+'<small>'+(st.target?'%':'')+'</small>', st.target?'目標 '+st.target+'件':'目標未設定')
    +kpi('面談数', st.meetings+'<small>件</small>', st.src==='sheet'?('シート直読み'+(st.blank?'・未記入'+st.blank:'')):('即決 '+st.instant+'件'))
    +kpi('成約率', (st.meetings?st.rate:'—')+'<small>'+(st.meetings?'%':'')+'</small>', st.src==='sheet'?('決着ベース／判断待ち込み '+st.rateInc+'%'):('即決率 '+st.instRate+'%'))
-   +kpiPink('口頭合意残', st.verbalStock+'<small>件</small>', '追客中 '+st.openDealCount+'件')
+   +kpiPink('口頭合意（ローン申請中含む）', st.verbalStock+'<small>件</small>', st.src==='sheet'?'セールス管理シート直読み':('追客中 '+st.openDealCount+'件'))
    +'</div></div>';
 
   // 今月の成約率（シート直読み・両方の定義）
@@ -958,7 +958,7 @@ function fillForm(cid){
       set('rp_meetings',n(dy.meetings)); set('rp_closed',n(dy.closed)); set('rp_instant','');
       // パイプラインは「今の保有件数」なので当月合計（_oc_<cid>）から
       set('rp_p_verbal', oc?n(oc.p_verbal):n(dy.p_verbal)); set('rp_p_after', oc?n(oc.p_after):n(dy.p_after));
-      document.getElementById('rpHint').textContent='セールス管理シートから自動入力しました（面談'+n(dy.meetings)+'・成約'+n(dy.closed)+'）。確認して送信してください。';
+      document.getElementById('rpHint').textContent='セールス管理シートから自動入力しました（面談'+n(dy.meetings)+'・成約'+n(dy.closed)+'）。口頭合意欄にはローン申請中も含めています。確認して送信してください。';
     } else {
       ['rp_meetings','rp_instant','rp_closed',...PIPE.map(p=>'rp_'+p[0])].forEach(id=>set(id,''));
       document.getElementById('rpHint').textContent=(date||'').slice(0,7)===curYM()?'この日はシート上の面談実施がありません。':'';
