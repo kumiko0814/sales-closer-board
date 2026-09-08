@@ -544,11 +544,26 @@ function renderOcTeam(){
   h+=ocNote(n(row.instant))+'</div>';
   return h;
 }
+// チーム全体の2率（個人タブにも必ず並べる＝「個人さえ良ければいい」にならないため・くみこ指示 2026-09-08）
+function ocTeamStrip(){
+  const all=ocRow('all'); if(!all || !n(all.meetings)) return '';
+  const won=n(all.closed), lost=n(all.p_long), pipe=n(all.p_verbal), wait=n(all.p_after);
+  return '<div class="grp">チーム全体（全員の合計・'+curYM()+'）</div>'
+   +'<div class="kpis">'
+   +'<div class="kpi"><div class="lbl">チーム 決着ベース</div><div class="val">'+ocRateTxt(all,'close')+'</div>'
+   +'<div class="sub">成約'+won+'÷(成約'+won+'＋失注'+lost+')</div></div>'
+   +'<div class="kpi"><div class="lbl">チーム 判断待ち込み</div><div class="val">'+ocRateTxt(all,'verbal')+'</div>'
+   +'<div class="sub">＋口頭合意/ローン待ち'+pipe+'＋判断待ち'+wait+'も分母</div></div>'
+   +'</div>'
+   +'<div class="legend" style="font-size:12px;color:var(--ink)">チーム実施 <b>'+n(all.meetings)+'</b>件・成約 <b>'+won+'</b>件</div>';
+}
 function renderOcCloser(cid){
   const c=closers.find(x=>x.id===cid)||{}, row=ocRow(cid);
   let h='<div class="card"><h3><span class="bar"></span>今月の成約率　<span class="muted">（シート直読み・10分毎更新）</span></h3>';
-  if(!row || !n(row.meetings)) return h+'<div class="empty">今月の実施面談はまだありません。</div></div>';
-  h+='<div class="sec-sub">セールス管理シートのステータスをそのまま数えた'+curYM()+'の'+esc(c.name||'')+'さんの数字です（上の「成約率」KPIとは計算のもとが違います）。</div>'
+  h+=ocTeamStrip();
+  if(!row || !n(row.meetings)) return h+'<div class="grp">あなた</div><div class="empty">今月の実施面談はまだありません。</div></div>';
+  h+='<div class="grp">あなた（'+esc(c.name||'')+'さん）</div>'
+   +'<div class="sec-sub">セールス管理シートのステータスをそのまま数えた数字です（上の「成約率」KPIとは計算のもとが違います）。</div>'
    +ocRateCards(row)+ocBreakdown(row)+ocNote(n(row.instant))+'</div>';
   return h;
 }
