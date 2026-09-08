@@ -277,6 +277,8 @@ const PIPE=[
   ['p_loan','ローン申請中'],['p_sched','日程調整中'],['p_resched','リスケ'],['p_cooloff','クーリングオフ対応中']
 ];
 let closers=[], targets={}, reports=[], deals=[], mstats={}, syncMeta=null, appts=[];
+// ボードから外すクローザー（くみこ指示 2026-09-08: 永田さんを削除）。DBの active フラグは残っているため、恒久化するなら sc_closers.active=false
+const HIDDEN_CLOSERS=['nagata'];
 function hasSync(){ return Object.keys(mstats).some(k=>k.charAt(0)!=='_'); } // _oc_* は合成行なので除外
 function syncBadge(){
   if(!hasSync()) return '';
@@ -377,7 +379,7 @@ async function loadAll(){
       sb.from('sc_reports').select('*').gte('report_date',curYM()+'-01').order('report_date',{ascending:false}),
       sb.from('sc_deals').select('*').order('deal_date',{ascending:true})
     ]);
-    closers=c.data||[]; reports=r.data||[];
+    closers=(c.data||[]).filter(x=>HIDDEN_CLOSERS.indexOf(x.id)===-1); reports=r.data||[];
     // 重複除去（同一 担当×顧客×リンク の二重登録を1件に）
     { const seen=new Set(); deals=(d.data||[]).filter(x=>{ const k=(x.closer_id||'')+'|'+(x.customer||'')+'|'+(x.proline_url||''); if(seen.has(k)) return false; seen.add(k); return true; }); }
     targets={}; (t.data||[]).forEach(x=>targets[x.closer_id]=x.target_deals);
