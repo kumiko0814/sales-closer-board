@@ -277,7 +277,7 @@ const PIPE=[
   ['p_loan','ローン申請中'],['p_sched','日程調整中'],['p_resched','リスケ'],['p_cooloff','クーリングオフ対応中']
 ];
 let closers=[], targets={}, reports=[], deals=[], mstats={}, syncMeta=null, appts=[];
-function hasSync(){ return Object.keys(mstats).length>0; }
+function hasSync(){ return Object.keys(mstats).some(k=>k.charAt(0)!=='_'); } // _oc_* は合成行なので除外
 function syncBadge(){
   if(!hasSync()) return '';
   let when=''; if(syncMeta&&syncMeta.last_synced){ const d=new Date(syncMeta.last_synced);
@@ -471,6 +471,71 @@ function teamStats(){
 }
 
 // ============================================================
+// 今月の成約率（シート直読み）※sc_month_stats の合成行 _oc_*
+// ============================================================
+function ocF(v){ v=parseFloat(v); return isNaN(v)?0:v; }
+function ocRow(key){ return mstats['_oc_'+key]||null; }
+// kind:'close'=決着ベース（成約÷(成約+失注)） / 'verbal'=判断待ち込み（成約÷(成約+失注+口頭合意+判断待ち)）
+function ocRate(row,kind){
+  const closed=n(row.closed), lost=n(row.p_long), verbal=n(row.p_verbal), after=n(row.p_after);
+  const den = kind==='close' ? closed+lost : closed+lost+verbal+after;
+  if(den>0) return Math.round(closed/den*100);
+  const col = kind==='close' ? row.close_rate : row.verbal_rate;
+  return (col===null||col===undefined||col==='') ? null : Math.round(ocF(col));
+}
+function ocRateTxt(row,kind){ const r=ocRate(row,kind); return r===null?'—':r+'<small>%</small>'; }
+function ocRateCards(row){
+  return '<div class="kpis">'
+   +'<div class="kpi hero"><div class="lbl">決着ベース 成約率</div><div class="val">'+ocRateTxt(row,'close')+'</div>'
+   +'<div class="sub">決まった／決まらなかった人だけで計算</div></div>'
+   +'<div class="kpi pink"><div class="lbl">判断待ち込み 成約率</div><div class="val">'+ocRateTxt(row,'verbal')+'</div>'
+   +'<div class="sub">口頭合意・ローン待ち・判断待ち・長期戦も分母に入れた率</div></div>'
+   +'</div>';
+}
+function ocBreakdown(row){
+  const un=n(row.instant);
+  return '<div class="legend" style="font-size:13px;color:var(--ink)">'
+   +'実施 <b>'+n(row.meetings)+'</b>件　・　成約 <b>'+n(row.closed)+'</b>件　・　口頭合意/ローン待ち <b>'+n(row.p_verbal)+'</b>件'
+   +'　・　判断待ち <b>'+n(row.p_after)+'</b>件　・　失注 <b>'+n(row.p_long)+'</b>件'
+   +'　・　結果未記入 <b'+(un>0?' style="color:var(--bad)"':'')+'>'+un+'</b>件</div>';
+}
+function ocNote(un){
+  return '<div class="sec-sub" style="margin:12px 0 0">'
+   +(un>0 ? '結果未記入が'+un+'件。面談当日にシートのステータスを更新すると自動で埋まります。' : '全員の結果が記録されています。')
+   +'</div>';
+}
+function renderOcTeam(){
+  const row=ocRow('all'); if(!row) return '';
+  let h='<div class="card"><h3><span class="bar"></span>今月の成約率　<span class="muted">（シート直読み・10分毎更新）</span></h3>'
+   +'<div class="sec-sub">セールス管理シートのステータスをそのまま数えた'+curYM()+'の数字です（上のチームKPIの「成約率」とは計算のもとが違います）。</div>'
+   +ocRateCards(row)+ocBreakdown(row);
+  const rows=closers.map(c=>({c:c,r:ocRow(c.id)})).filter(x=>x.r);
+  if(rows.length){
+    h+='<div class="scroll" style="margin-top:14px"><table class="tbl"><thead><tr>'
+     +'<th class="name">担当</th><th>実施</th><th>成約</th><th>口頭/ローン</th><th>判断待ち</th><th>失注</th><th>未記入</th><th>決着率</th><th>判断待ち込み率</th>'
+     +'</tr></thead><tbody>';
+    rows.forEach(x=>{ const r=x.r, un=n(r.instant), cr=ocRate(r,'close'), vr=ocRate(r,'verbal');
+      h+='<tr><td class="name">'+esc(x.c.name)+'</td>'
+       +'<td>'+n(r.meetings)+'</td><td class="big">'+n(r.closed)+'</td>'
+       +'<td>'+n(r.p_verbal)+'</td><td>'+n(r.p_after)+'</td><td>'+n(r.p_long)+'</td>'
+       +'<td'+(un>0?' style="color:var(--bad);font-weight:700"':'')+'>'+un+'</td>'
+       +'<td>'+(cr===null?'—':cr+'%')+'</td><td>'+(vr===null?'—':vr+'%')+'</td></tr>';
+    });
+    h+='</tbody></table></div>';
+  }
+  h+=ocNote(n(row.instant))+'</div>';
+  return h;
+}
+function renderOcCloser(cid){
+  const c=closers.find(x=>x.id===cid)||{}, row=ocRow(cid);
+  let h='<div class="card"><h3><span class="bar"></span>今月の成約率　<span class="muted">（シート直読み・10分毎更新）</span></h3>';
+  if(!row || !n(row.meetings)) return h+'<div class="empty">今月の実施面談はまだありません。</div></div>';
+  h+='<div class="sec-sub">セールス管理シートのステータスをそのまま数えた'+curYM()+'の'+esc(c.name||'')+'さんの数字です（上の「成約率」KPIとは計算のもとが違います）。</div>'
+   +ocRateCards(row)+ocBreakdown(row)+ocNote(n(row.instant))+'</div>';
+  return h;
+}
+
+// ============================================================
 // タブ
 // ============================================================
 function buildTabs(){
@@ -527,6 +592,8 @@ function renderSummary(){
    +kpi('成約率', s.rate+'<small>%</small>', '即決率 '+s.instRate+'%')
    +kpiPink('口頭合意ストック', s.verbalStock+'<small>件</small>', '追客中の個別案件 '+s.openDealCount+'件')
    +'</div></div>';
+  // 今月の成約率（シート直読み・両方の定義）
+  h+=renderOcTeam();
   // 面談予定（プロライン予約・チーム全員）
   h+=renderAppointments(null);
   // 月間目標の設定パネル（上司=森川・清水のみ表示）
@@ -698,6 +765,8 @@ function renderCloser(cid){
    +kpiPink('口頭合意残', st.verbalStock+'<small>件</small>', '追客中 '+st.openDealCount+'件')
    +'</div></div>';
 
+  // 今月の成約率（シート直読み・両方の定義）
+  h+=renderOcCloser(cid);
   // 面談予定（この人のプロライン予約）
   h+=renderAppointments(cid);
 
