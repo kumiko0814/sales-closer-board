@@ -804,7 +804,7 @@ function renderCloser(cid){
   // フォールバック：自動連携が無い場合のみ、従来の手入力フォーム
   else if(editable){
     h+='<div class="card"><h3><span class="bar"></span>本日の報告を入力</h3>'
-     +'<div class="sec-sub">送信すると①このダッシュボードに即反映　②マーケ03_セールス報告スレの「本日のセールス報告」スレッドへ自動返信されます。同じ日付で送り直すと上書きされます。</div>'
+     +'<div class="sec-sub">面談数・成約・パイプラインは<b>セールス管理シートから自動で数えて入力済み</b>です（10分ごと更新）。確認して、必要なら直して送信してください。送信すると マーケ03_セールス報告スレ の「本日のセールス報告」スレッドへ自動返信されます。同じ日付で送り直すと上書きされます。</div>'
      +'<div class="grp">日付・その日の実績</div>'
      +'<div class="form-grid">'
      +fInput('rp_date','日付','date',todayStr())
@@ -895,8 +895,19 @@ function fillForm(cid){
     const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.value=(v==null?'':v); };
     if(r){ set('rp_meetings',r.meetings);set('rp_instant',r.instant_close);set('rp_closed',r.closed);
       PIPE.forEach(p=>set('rp_'+p[0],r[p[0]])); set('rp_note',r.note);
-      document.getElementById('rpHint').textContent='この日は報告済み。送信で上書きします。'; }
-    else { document.getElementById('rpHint').textContent=''; }
+      document.getElementById('rpHint').textContent='この日は報告済み。送信で上書きします。'; return; }
+    // 手入力が無い日: セールス管理シートの当日実績（_day_<cid>_<dd> 合成行）を自動入力
+    const dd=(date||'').slice(8,10); const dy=(date||'').slice(0,7)===curYM()? mstats['_day_'+cid+'_'+dd] : null;
+    const oc=mstats['_oc_'+cid];
+    if(dy && n(dy.meetings)>0){
+      set('rp_meetings',n(dy.meetings)); set('rp_closed',n(dy.closed)); set('rp_instant','');
+      // パイプラインは「今の保有件数」なので当月合計（_oc_<cid>）から
+      set('rp_p_verbal', oc?n(oc.p_verbal):n(dy.p_verbal)); set('rp_p_after', oc?n(oc.p_after):n(dy.p_after));
+      document.getElementById('rpHint').textContent='セールス管理シートから自動入力しました（面談'+n(dy.meetings)+'・成約'+n(dy.closed)+'）。確認して送信してください。';
+    } else {
+      ['rp_meetings','rp_instant','rp_closed',...PIPE.map(p=>'rp_'+p[0])].forEach(id=>set(id,''));
+      document.getElementById('rpHint').textContent=(date||'').slice(0,7)===curYM()?'この日はシート上の面談実施がありません。':'';
+    }
   };
   dEl.onchange=load; dEl.onfocus=()=>editing=true; dEl.onblur=()=>editing=false;
   ['rp_meetings','rp_instant','rp_closed','rp_note',...PIPE.map(p=>'rp_'+p[0])].forEach(id=>{
