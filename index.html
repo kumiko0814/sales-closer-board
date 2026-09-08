@@ -479,9 +479,7 @@ function ocRow(key){ return mstats['_oc_'+key]||null; }
 function ocRate(row,kind){
   const closed=n(row.closed), lost=n(row.p_long), verbal=n(row.p_verbal), after=n(row.p_after);
   const den = kind==='close' ? closed+lost : closed+lost+verbal+after;
-  if(den>0) return Math.round(closed/den*100);
-  const col = kind==='close' ? row.close_rate : row.verbal_rate;
-  return (col===null||col===undefined||col==='') ? null : Math.round(ocF(col));
+  return den>0 ? Math.round(closed/den*100) : null;  // 分母0は「—」（目標ボードと表示統一）
 }
 function ocRateTxt(row,kind){ const r=ocRate(row,kind); return r===null?'—':r+'<small>%</small>'; }
 function ocRateCards(row){
