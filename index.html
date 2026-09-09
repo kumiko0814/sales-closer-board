@@ -517,7 +517,7 @@ function ocRateCards(row){
 function ocBreakdown(row){
   const un=n(row.instant);
   return '<div class="legend" style="font-size:13px;color:var(--ink)">'
-   +'実施 <b>'+n(row.meetings)+'</b>件　・　成約 <b>'+n(row.closed)+'</b>件　・　口頭合意（ローン申請中含む）<b>'+n(row.p_verbal)+'</b>件'
+   +'実施 <b>'+n(row.meetings)+'</b>件　・　成約 <b>'+n(row.closed)+'</b>件　・　口頭合意 <b>'+(n(row.p_verbal)-n(row.verbal_closed))+'</b>件　・　ローン申請中 <b>'+n(row.verbal_closed)+'</b>件'
    +'　・　判断待ち <b>'+n(row.p_after)+'</b>件　・　失注 <b>'+n(row.p_long)+'</b>件'
    +'　・　結果未記入 <b'+(un>0?' style="color:var(--bad)"':'')+'>'+un+'</b>件</div>';
 }
