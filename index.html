@@ -695,7 +695,7 @@ function renderSummary(){
   // クローザー別テーブル
   h+='<div class="card"><h3><span class="bar"></span>クローザー別サマリー</h3>'
    +'<div class="scroll"><table class="tbl"><thead><tr>'
-   +'<th class="name">クローザー</th><th>目標</th><th>成約</th><th>達成率</th><th>面談</th><th>即決</th><th>成約率</th><th>口頭合意残</th><th>最終報告</th>'
+   +'<th class="name">クローザー</th><th>目標</th><th>成約</th><th>達成率</th><th>面談</th><th>残弾</th><th>即決</th><th>成約率</th><th>口頭合意残</th><th>最終報告</th>'
    +'</tr></thead><tbody>';
   closers.forEach(c=>{ const st=closerStats(c.id); const lr=st.lr;
     h+='<tr onclick="go(\''+c.id+'\')" style="cursor:pointer">'
@@ -704,6 +704,7 @@ function renderSummary(){
      +'<td class="big">'+st.closed+'</td>'
      +'<td>'+(st.target?achievePill(st.achieve):'<span class="pill n">未設定</span>')+'</td>'
      +'<td>'+st.meetings+'</td>'
+     +'<td>'+(mstats['_oc_'+c.id]?n(mstats['_oc_'+c.id].target_meetings):'—')+'</td>'
      +'<td>'+st.instant+'</td>'
      +'<td>'+(st.meetings?st.rate+'%':'—')+'</td>'
      +'<td>'+st.verbalStock+'</td>'
