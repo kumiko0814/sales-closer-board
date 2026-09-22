@@ -153,6 +153,16 @@ header .wrap{padding-bottom:0;display:flex;align-items:center;gap:14px;flex-wrap
 .btn-bug{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.3);padding:5px 12px;border-radius:8px;font-size:12px;cursor:pointer;font-family:inherit}
 .btn-bug:hover{background:rgba(255,255,255,.22)}
 .bug-badge{display:inline-block;min-width:17px;height:17px;line-height:17px;text-align:center;background:#dc2626;color:#fff;border-radius:9px;font-size:11px;font-weight:800;padding:0 5px;margin-left:4px}
+
+/* クローザー空き枠 */
+.tbl.fs td{text-align:center;cursor:pointer;min-width:54px;vertical-align:top}
+.tbl.fs th.we{color:var(--pink)}
+.tbl.fs td.fs0{color:#b8c0cc}
+.tbl.fs td.fs1{background:var(--pink-bg)}
+.tbl.fs td.fs2{background:var(--blue)}
+.tbl.fs td.fs3{background:#e3f4ea}
+.tbl.fs .fsh{font-size:11px;color:var(--sub);margin-top:3px;line-height:1.5}
+.tbl.fs tr.sum td{font-weight:800;background:var(--blue2)}
 </style>
 </head>
 <body>
@@ -277,6 +287,7 @@ const PIPE=[
   ['p_loan','ローン申請中'],['p_sched','日程調整中'],['p_resched','リスケ'],['p_cooloff','クーリングオフ対応中']
 ];
 let closers=[], targets={}, reports=[], deals=[], mstats={}, syncMeta=null, appts=[], openCases=[];
+let fsRows=[]; // クローザー空き枠（closer-free-slots GAS の合成行 _fs_*）
 // ボードから外すクローザー（くみこ指示 2026-09-08: 永田さんを削除）。DBの active フラグは残っているため、恒久化するなら sc_closers.active=false
 const HIDDEN_CLOSERS=['nagata'];
 function hasSync(){ return Object.keys(mstats).some(k=>k.charAt(0)!=='_'); } // _oc_* は合成行なので除外
@@ -393,6 +404,8 @@ async function loadAll(){
       (ms&&ms.data||[]).forEach(x=>mstats[x.closer_id]=x);
       // 追客リスト（シート起点）。テーブル未作成/空なら従来の手入力リストにフォールバック
       try{ const {data:ocs}=await sb.from('sc_open_cases').select('*').eq('ym',curYM()); openCases=ocs||[]; }catch(e){ openCases=[]; }
+      // 空き枠（翌月分も含むので ym で絞らない）
+      try{ const {data:fs}=await sb.from('sc_month_stats').select('*').like('closer_id','_fs_%'); fsRows=fs||[]; }catch(e){ fsRows=[]; }
       syncMeta=mt&&mt.data||null;
     }catch(e){ /* 自動連携テーブル未導入 */ }
     // プロライン面談予約（今日0:00以降）※テーブル未作成でもエラーにしない
@@ -609,6 +622,39 @@ function render(){
 
 function achievePill(p){ const k=p>=100?'g':p>=70?'y':'r'; return '<span class="pill '+k+'">'+p+'%</span>'; }
 
+// ===== クローザーの空き枠（closer-free-slots GAS: Googleカレンダーの予定あり＋シートの面談予定を受付時間帯から引く・30分ごと） =====
+function fsDays(k){ const out=[]; const t=new Date(); t.setHours(0,0,0,0); for(let i=0;i<k;i++) out.push(new Date(t.getTime()+i*86400000)); return out; }
+function fsKey(d){ return String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0'); }
+function fsRow(id){ return fsRows.find(r=>r.closer_id===id)||null; }
+function fsHours(mask){ const h=[]; for(let b=0;b<14;b++){ if(mask&(1<<b)) h.push(9+b); } return h; }
+function fsLabel(d){ return (d.getMonth()+1)+'/'+d.getDate()+'('+'日月火水木金土'[d.getDay()]+')'; }
+function fsToggle(td){ const x=td.querySelector('.fsh'); if(x) x.hidden=!x.hidden; }
+function renderFreeSlots(cid){
+  const meta=fsRow('_fs_meta'); const days=fsDays(14);
+  const who=cid?((closers.find(x=>x.id===cid)||{}).name||''):'';
+  let h='<div class="card"><h3><span class="bar"></span>'+(cid?'空き枠（'+esc(who)+'さん・今後14日）':'クローザーの空き枠（今後14日）')+'</h3>'
+   +'<div class="sec-sub">Googleカレンダーの「予定あり」とセールス管理シートの面談予定を、受付時間帯'+(meta?(n(meta.closed)+':00〜'+n(meta.verbal_closed)+':00'):'10:00〜21:00')+'から引いた60分枠の数。30分ごと自動更新。数字を押すと空いている時刻が出ます。<b>未共有</b>＝カレンダーが共有されていない人（シートの面談だけで計算）。</div>';
+  if(!fsRows.length) return h+'<div class="empty">空き枠の同期待ちです（closer-free-slots の初回承認後に表示されます）。</div></div>';
+  const list=cid?closers.filter(c=>c.id===cid):closers;
+  h+='<div class="scroll"><table class="tbl fs"><thead><tr><th class="name">クローザー</th>'+days.map(d=>'<th class="'+((d.getDay()===0||d.getDay()===6)?'we':'')+'">'+fsLabel(d)+'</th>').join('')+'</tr></thead><tbody>';
+  list.forEach(c=>{
+    const any=days.map(d=>fsRow('_fs_'+c.id+'_'+fsKey(d))).find(x=>x);
+    const noacc=any && n(any.verbal_closed)===1;
+    h+='<tr><td class="name">'+esc(c.name)+(noacc?'<br><span class="pill n">未共有</span>':'')+'</td>';
+    days.forEach(d=>{ const r=fsRow('_fs_'+c.id+'_'+fsKey(d));
+      if(!r){ h+='<td class="fs0">—</td>'; return; }
+      const free=n(r.meetings), hours=fsHours(n(r.target_meetings));
+      const cls=free===0?'fs0':free<=2?'fs1':free<=5?'fs2':'fs3';
+      h+='<td class="'+cls+'" title="'+hours.map(x=>x+':00').join(' ')+'" onclick="fsToggle(this)"><b>'+free+'</b><div class="fsh" hidden>'+(hours.length?hours.map(x=>x+':00').join('<br>'):'空きなし')+(n(r.p_verbal)?'<br><i>面談'+n(r.p_verbal)+'件</i>':'')+'</div></td>';
+    });
+    h+='</tr>';
+  });
+  if(!cid) h+='<tr class="sum"><td class="name">合計</td>'+days.map(d=>{ const r=fsRow('_fs_all_'+fsKey(d)); return '<td>'+(r?n(r.meetings):'—')+'</td>'; }).join('')+'</tr>';
+  h+='</tbody></table></div>';
+  if(!cid){ const wk=days.slice(0,7).reduce((s,d)=>{ const r=fsRow('_fs_all_'+fsKey(d)); return s+(r?n(r.meetings):0); },0);
+    h+='<div class="sec-sub" style="margin-top:8px">今日から7日間のチーム空き枠 <b>'+wk+'</b>枠。急ぎの予約（SHEなど）は空きが多い日に寄せてください。</div>'; }
+  return h+'</div>';
+}
 function renderSummary(){
   if(!closers.length) return '<div class="card"><div class="empty">名簿がまだ登録されていません。<br>SEED（非公開）SQL を Supabase に貼って RUN してください。</div></div>';
   const s=teamStats();
@@ -629,6 +675,8 @@ function renderSummary(){
    +kpi('成約率', s.rate+'<small>%</small>', s.src==='sheet'?('決着ベース／判断待ち込み '+s.rateInc+'%'):('即決率 '+s.instRate+'%'))
    +kpiPink('口頭合意（ローン申請中含む）', s.verbalStock+'<small>件</small>', s.src==='sheet'?'セールス管理シート直読み':('追客中の個別案件 '+s.openDealCount+'件'))
    +'</div></div>';
+  // クローザーの空き枠（Googleカレンダー連動）
+  h+=renderFreeSlots(null);
   // 今月の成約率（シート直読み・両方の定義）
   h+=renderOcTeam();
   // 面談予定（プロライン予約・チーム全員）
@@ -835,6 +883,7 @@ function renderCloser(cid){
    +'</div></div>';
 
   // 今月の成約率（シート直読み・両方の定義）
+  h+=renderFreeSlots(cid);
   h+=renderOcCloser(cid);
   // 面談予定（この人のプロライン予約）
   h+=renderAppointments(cid);
