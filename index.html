@@ -287,6 +287,7 @@ const PIPE=[
   ['p_loan','ローン申請中'],['p_sched','日程調整中'],['p_resched','リスケ'],['p_cooloff','クーリングオフ対応中']
 ];
 let closers=[], targets={}, reports=[], deals=[], mstats={}, syncMeta=null, appts=[], openCases=[];
+let gbTeamTarget=0; // 目標ボード(gb_targets)の当月合計。クローザー目標が未入力の月のチーム目標に使う
 let fsRows=[]; // クローザー空き枠（closer-free-slots GAS の合成行 _fs_*）
 // ボードから外すクローザー（くみこ指示 2026-09-08: 永田さんを削除）。DBの active フラグは残っているため、恒久化するなら sc_closers.active=false
 const HIDDEN_CLOSERS=['nagata'];
@@ -407,6 +408,8 @@ async function loadAll(){
       // 空き枠（翌月分も含むので ym で絞らない）
       try{ const {data:fs}=await sb.from('sc_month_stats').select('*').like('closer_id','_fs_%'); fsRows=fs||[]; }catch(e){ fsRows=[]; }
       syncMeta=mt&&mt.data||null;
+      // 目標ボードの当月目標（チャネル別の合計・AD_*は除く）。チーム目標が未入力ならこれを使う
+      try{ const {data:gt}=await sb.from('gb_targets').select('*').eq('ym',curYM()); gbTeamTarget=(gt||[]).filter(r=>!String(r.channel||'').startsWith('AD_')).reduce((a,r)=>a+n(r.target),0); }catch(e){ gbTeamTarget=0; }
     }catch(e){ /* 自動連携テーブル未導入 */ }
     // プロライン面談予約（今日0:00以降）※テーブル未作成でもエラーにしない
     appts=[];
@@ -494,17 +497,18 @@ function teamStats(){
   let meetings=0,closed=0,instant=0,target=0,verbalStock=0, lost=0, wait=0, anySheet=false;
   closers.forEach(c=>{ const s=closerStats(c.id); meetings+=s.meetings;closed+=s.closed;instant+=s.instant;target+=s.target;verbalStock+=s.verbalStock; if(s.src==='sheet'){ anySheet=true; lost+=n(s.lost); wait+=n(s.wait);} });
   const override=n(targets['__team__']); if(override>0) target=override;
+  let targetSrc='board'; if(!target && gbTeamTarget>0){ target=gbTeamTarget; targetSrc='goal'; } // 未入力なら目標ボードのKR3目標
   const all=mstats['_oc_all'];
   if(all && n(all.meetings)>0){ // チーム合計はシート直読みの _oc_all を正とする（手入力報告の取りこぼしで数字が割れないように）
     const won=n(all.closed), lostA=n(all.p_long), pipe=n(all.p_verbal), waitA=n(all.p_after);
     const dec=won+lostA, inc=dec+pipe+waitA;
     const closedT = n(all.target_deals)>0 ? n(all.target_deals) : won;   // 入金ベース（目標ボードと同じ）
-    return { src:'sheet', meetings:n(all.meetings), closed:closedT, won, instant:0, target, verbalStock:pipe,
+    return { src:'sheet', targetSrc, meetings:n(all.meetings), closed:closedT, won, instant:0, target, verbalStock:pipe,
       rate: dec?Math.round(won/dec*100):0, rateInc: inc?Math.round(won/inc*100):0, instRate:0,
       achieve: target?Math.round(closedT/target*100):0, blank:n(all.instant),
       openDealCount: deals.filter(d=>d.status!=='入金完了'&&d.status!=='辞退').length };
   }
-  return { meetings,closed,instant,target,verbalStock,
+  return { meetings,closed,instant,target,targetSrc,verbalStock,
     rate: meetings?Math.round(closed/meetings*100):0,
     instRate: meetings?Math.round(instant/meetings*100):0,
     achieve: target?Math.round(closed/target*100):0,
@@ -673,8 +677,8 @@ function renderSummary(){
   h+='<div class="card"><h3><span class="bar"></span>チーム全体　<span class="muted">（'+curYM()+'）</span>'+(hasSync()?'　'+syncBadge():'')+'</h3>'
    +'<div class="sec-sub">'+(hasSync()?'数字はセールス管理シートから自動連携（10分ごと更新）。<b>成約は入金ベース</b>（先月面談の今月入金分を含む）で、目標ボードと同じ数え方です。'+(s.won!=null&&s.won!==s.closed?'今月面談で決まった分は'+s.won+'件。':''):'今月の面談日ベース集計。パイプラインは各クローザーの最新報告の合計。')+'</div>'
    +'<div class="kpis">'
-   +kpiHero('月間 成約', s.closed, '目標 '+s.target+'件', s.achieve)
-   +kpi('達成率', s.achieve+'<small>%</small>', '目標 '+s.target+'件')
+   +kpiHero('月間 成約', s.closed, s.target?('目標 '+s.target+'件'+(s.targetSrc==='goal'?'（目標ボード）':'')):'目標未入力', s.achieve)
+   +kpi('達成率', (s.target?s.achieve:'—')+'<small>'+(s.target?'%':'')+'</small>', s.target?('目標 '+s.target+'件'+(s.targetSrc==='goal'?'・目標ボードのKR3目標':'')):'クローザー目標が未入力')
    +kpi('面談数', s.meetings+'<small>件</small>', s.src==='sheet'?('シート直読み'+(s.blank?'・未記入'+s.blank:'')):('即決 '+s.instant+'件'))
    +kpi('成約率', s.rate+'<small>%</small>', s.src==='sheet'?('決着ベース／判断待ち込み '+s.rateInc+'%'):('即決率 '+s.instRate+'%'))
    +kpiPink('口頭合意（ローン申請中含む）', s.verbalStock+'<small>件</small>', s.src==='sheet'?'セールス管理シート直読み':('追客中の個別案件 '+s.openDealCount+'件'))
