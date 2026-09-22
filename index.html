@@ -471,9 +471,12 @@ function closerStats(cid){
     const target=n(targets[cid]);
     const won=n(oc.closed), lost=n(oc.p_long), pipe=n(oc.p_verbal), wait=n(oc.p_after);
     const dec=won+lost, inc=dec+pipe+wait;
-    return { auto:true, src:'sheet', meetings:n(oc.meetings), closed:won, instant:0, target,
+    // 成約は入金ベース（当月入金・先月面談の今月入金を含む）＝目標ボードと同じ数え方。同期が target_deals を載せていない間は面談ベース(won)
+    const paidMode = mstats['_oc_all'] && n(mstats['_oc_all'].target_deals)>0;
+    const closedN = paidMode ? n(oc.target_deals) : won;
+    return { auto:true, src:'sheet', meetings:n(oc.meetings), closed:closedN, won, instant:0, target,
       rate: dec?Math.round(won/dec*100):0, rateInc: inc?Math.round(won/inc*100):0, instRate:0,
-      achieve: target?Math.round(won/target*100):0,
+      achieve: target?Math.round(closedN/target*100):0,
       verbalStock:pipe, verbalRate:0, verbalClosed:0, targetMeetings:0, openDealCount:od.length, lr:null,
       blank:n(oc.instant), wait, lost };
   }
@@ -495,9 +498,10 @@ function teamStats(){
   if(all && n(all.meetings)>0){ // チーム合計はシート直読みの _oc_all を正とする（手入力報告の取りこぼしで数字が割れないように）
     const won=n(all.closed), lostA=n(all.p_long), pipe=n(all.p_verbal), waitA=n(all.p_after);
     const dec=won+lostA, inc=dec+pipe+waitA;
-    return { src:'sheet', meetings:n(all.meetings), closed:won, instant:0, target, verbalStock:pipe,
+    const closedT = n(all.target_deals)>0 ? n(all.target_deals) : won;   // 入金ベース（目標ボードと同じ）
+    return { src:'sheet', meetings:n(all.meetings), closed:closedT, won, instant:0, target, verbalStock:pipe,
       rate: dec?Math.round(won/dec*100):0, rateInc: inc?Math.round(won/inc*100):0, instRate:0,
-      achieve: target?Math.round(won/target*100):0, blank:n(all.instant),
+      achieve: target?Math.round(closedT/target*100):0, blank:n(all.instant),
       openDealCount: deals.filter(d=>d.status!=='入金完了'&&d.status!=='辞退').length };
   }
   return { meetings,closed,instant,target,verbalStock,
@@ -667,7 +671,7 @@ function renderSummary(){
    +'<div class="more"><button class="btn line sm" onclick="openHelp()">くわしい使い方・見方をひらく</button></div></div>';
   // チームKPI
   h+='<div class="card"><h3><span class="bar"></span>チーム全体　<span class="muted">（'+curYM()+'）</span>'+(hasSync()?'　'+syncBadge():'')+'</h3>'
-   +'<div class="sec-sub">'+(hasSync()?'数字はセールス管理シートから自動連携（1時間ごと更新）。':'今月の面談日ベース集計。パイプラインは各クローザーの最新報告の合計。')+'</div>'
+   +'<div class="sec-sub">'+(hasSync()?'数字はセールス管理シートから自動連携（10分ごと更新）。<b>成約は入金ベース</b>（先月面談の今月入金分を含む）で、目標ボードと同じ数え方です。'+(s.won!=null&&s.won!==s.closed?'今月面談で決まった分は'+s.won+'件。':''):'今月の面談日ベース集計。パイプラインは各クローザーの最新報告の合計。')+'</div>'
    +'<div class="kpis">'
    +kpiHero('月間 成約', s.closed, '目標 '+s.target+'件', s.achieve)
    +kpi('達成率', s.achieve+'<small>%</small>', '目標 '+s.target+'件')
