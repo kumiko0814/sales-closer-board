@@ -680,7 +680,7 @@ function renderSummary(){
    +kpiHero('月間 成約', s.closed, s.target?('目標 '+s.target+'件'+(s.targetSrc==='goal'?'（目標ボード）':'')):'目標未入力', s.achieve)
    +kpi('達成率', (s.target?s.achieve:'—')+'<small>'+(s.target?'%':'')+'</small>', s.target?('目標 '+s.target+'件'+(s.targetSrc==='goal'?'・目標ボードのKR3目標':'')):'クローザー目標が未入力')
    +kpi('面談数', s.meetings+'<small>件</small>', s.src==='sheet'?('シート直読み'+(s.blank?'・未記入'+s.blank:'')):('即決 '+s.instant+'件'))
-   +kpi('これからの面談（残弾）', (mstats['_sheet_paid']?n(mstats['_sheet_paid'].meetings):'—')+'<small>件</small>', mstats['_sheet_paid']?('今日あと'+n(mstats['_sheet_paid'].closed)+'・明日以降'+n(mstats['_sheet_paid'].verbal_closed)+'（キャンセル除く）'):'同期待ち')
+   +kpi('これからの面談（残弾）', (mstats['_sheet_paid']?n(mstats['_sheet_paid'].meetings):'—')+'<small>件</small>', mstats['_sheet_paid']?('今月分。今日あと'+n(mstats['_sheet_paid'].closed)+'・明日以降'+n(mstats['_sheet_paid'].verbal_closed)+(n(mstats['_sheet_paid'].p_verbal)?'／来月の予約 '+n(mstats['_sheet_paid'].p_verbal)+'件は別':'')):'同期待ち')
    +kpi('成約率', s.rate+'<small>%</small>', s.src==='sheet'?('決着ベース／判断待ち込み '+s.rateInc+'%'):('即決率 '+s.instRate+'%'))
    +kpiPink('口頭合意（ローン申請中含む）', s.verbalStock+'<small>件</small>', s.src==='sheet'?'セールス管理シート直読み':('追客中の個別案件 '+s.openDealCount+'件'))
    +'</div></div>';
