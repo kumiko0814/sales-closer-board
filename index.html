@@ -480,7 +480,7 @@ function closerStats(cid){
     return { auto:true, src:'sheet', meetings:n(oc.meetings), closed:closedN, won, instant:0, target,
       rate: dec?Math.round(won/dec*100):0, rateInc: inc?Math.round(won/inc*100):0, instRate:0,
       achieve: target?Math.round(closedN/target*100):0,
-      verbalStock:pipe, verbalRate:0, verbalClosed:0, targetMeetings:0, openDealCount:od.length, lr:null,
+      verbalStock:pipe, verbalClosed:won+pipe, verbalRate: inc?Math.round((won+pipe)/inc*100):0, targetMeetings:0, openDealCount:od.length, lr:null,
       blank:n(oc.instant), wait, lost };
   }
   const rs=monthReports(cid), lr=latestReport(cid);
@@ -903,7 +903,7 @@ function renderCloser(cid){
   h+='<div class="card"><h3><span class="bar"></span>'+esc(c.name)+'　<span class="muted">（'+curYM()+'）</span>'+(st.auto?'　'+syncBadge():'')+'</h3>'
    +'<div class="kpis">'
    +kpiHero('月間 成約', st.closed, '目標 '+st.target+'件', st.achieve)
-   +kpi('達成率', (st.target?st.achieve:'—')+'<small>'+(st.target?'%':'')+'</small>', st.target?'目標 '+st.target+'件':'目標未設定')
+   +kpi('達成率', (st.target?st.achieve:'—')+'<small>'+(st.target?'%':'')+'</small>', (st.target?'目標 '+st.target+'件':'目標未設定')+(canEdit(cid)?'<div style="margin-top:6px"><input id="myTarget" type="number" min="0" placeholder="今月の目標" value="'+(targets[cid]!=null?targets[cid]:'')+'" onfocus="editing=true" onblur="editing=false" style="width:90px;padding:5px 7px;border:1px solid #d5e0ee;border-radius:8px;font-size:14px"> <button class="btn sm" onclick="saveMyTarget(\''+cid+'\')">保存</button></div>':''))
    +kpi('面談数', st.meetings+'<small>件</small>', st.src==='sheet'?('シート直読み'+(st.blank?'・未記入'+st.blank:'')):('即決 '+st.instant+'件'))
    +kpi('これからの面談（残弾）', (mstats['_oc_'+c.id]?n(mstats['_oc_'+c.id].target_meetings):'—')+'<small>件</small>', mstats['_oc_'+c.id]?'今日の残り＋明日以降（キャンセル除く）':'同期待ち')
    +kpi('成約率', (st.meetings?st.rate:'—')+'<small>'+(st.meetings?'%':'')+'</small>', st.src==='sheet'?('決着ベース／判断待ち込み '+st.rateInc+'%'):('即決率 '+st.instRate+'%'))
@@ -1117,13 +1117,22 @@ async function postToSlack(cid,row){
 // ============================================================
 // 自動連携モードの「月次報告」テキスト＆ワンクリック投稿
 // ============================================================
+async function saveMyTarget(cid){
+  if(!canEdit(cid)){ alert('ご自身のタブから入力してください。'); return; }
+  const v=parseInt((document.getElementById('myTarget')||{}).value,10); if(isNaN(v)||v<0){ alert('目標の件数を入れてください'); return; }
+  const {error}=await sb.from('sc_targets').upsert({closer_id:cid,ym:curYM(),target_deals:v,updated_at:new Date().toISOString()},{onConflict:'closer_id,ym'});
+  if(error){ alert('保存できませんでした: '+error.message); return; }
+  targets[cid]=v; render();
+}
 function monthlyReportText(cid, note){
   const c=closers.find(x=>x.id===cid)||{}; const st=closerStats(cid);
   const remain=Math.max(0,(st.target||0)-st.closed);
   let t='【セールス報告】'+curYM()+'　'+(c.name||'')+'\n'
-    +'面談 '+st.meetings+' / 成約 '+st.closed+'（成約率 '+st.rate+'%）\n'
+    +'面談 '+st.meetings+' / 成約 '+(st.won!=null?st.won:st.closed)+'（決着ベース '+st.rate+'% ／ 判断待ち込み '+(st.rateInc!=null?st.rateInc:st.rate)+'%）\n'
     +'口頭合意含む成約 '+(st.verbalClosed!=null?st.verbalClosed:'-')+'件（'+(st.verbalRate!=null?st.verbalRate:'-')+'%）\n'
-    +'目標 '+(st.target||0)+'件 ／ 達成率 '+st.achieve+'% ／ あと '+remain+'件';
+    +(st.won!=null&&st.won!==st.closed?'今月の入金 '+st.closed+'件（先月面談の今月入金を含む）\n':'')
+    +(st.target?('目標 '+st.target+'件 ／ 達成率 '+st.achieve+'% ／ あと '+remain+'件'):'目標 未設定（自分のタブの「今月の目標」で入力できます）');
+  // 決着ベース＝成約÷(成約+失注)。判断待ち込み＝成約÷(成約+失注+口頭合意+判断待ち)。面談7・成約6・判断待ち1なら 100% と 86%
   if(note&&note.trim()) t+='\nネクストアクション：'+note.trim();
   return t;
 }
