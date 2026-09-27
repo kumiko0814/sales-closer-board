@@ -673,6 +673,7 @@ function renderSummary(){
    +'<li>「<b>面談予定</b>」で、終わった面談の右にある「<b>結果を入力</b>」を押す（顧客名・アライアンス・プロラインリンクが自動で入ります）</li>'
    +'<li><b>結果（ステータス）とメモ</b>を選んで「<b>追加</b>」→ 追客リストと<b>マーケ07の面談報告スレへ自動反映</b>（Slackへの手打ち不要）</li></ol>'
    +'<div class="more"><button class="btn line sm" onclick="openHelp()">くわしい使い方・見方をひらく</button></div></div>';
+  h+=renderVerbalAlert(openCases);
   // チームKPI
   h+='<div class="card"><h3><span class="bar"></span>チーム全体　<span class="muted">（'+curYM()+'）</span>'+(hasSync()?'　'+syncBadge():'')+'</h3>'
    +'<div class="sec-sub">'+(hasSync()?'数字はセールス管理シートから自動連携（10分ごと更新）。<b>成約は入金ベース</b>（先月面談の今月入金分を含む）で、目標ボードと同じ数え方です。'+(s.won!=null&&s.won!==s.closed?'今月面談で決まった分は'+s.won+'件。':''):'今月の面談日ベース集計。パイプラインは各クローザーの最新報告の合計。')+'</div>'
@@ -773,6 +774,21 @@ function matchDeal(c){ // sc_deals（手入力）を部屋ID→名前の順で�
   return d||null;
 }
 function bucketPill(b,st){ const cls=b==='pipe'?(/ローン/.test(st)?'y':'g'):(b==='wait'?'g':'n'); return '<span class="pill '+cls+'">'+esc(st||(b==='blank'?'結果未記入':b))+'</span>'; }
+function renderVerbalAlert(list){
+  // 口頭合意・ローン申請中（pipe）で面談から3日以上 → 至急アラート（くみこ指示 9/27）。Slack #マーケ07 にも毎日9時・17時に同じ内容を投稿
+  const hot=(list||[]).filter(c=>c.bucket==='pipe'&&c.days>=3).sort((a,b)=>b.days-a.days);
+  if(!hot.length) return '';
+  let h='<div class="card" style="border:3px solid #D93A5B;background:#FFF1F4"><h3 style="color:#B0173A;margin-bottom:6px">【至急】口頭合意から3日以上たっている方が'+hot.length+'名います</h3>'
+   +'<div style="font-weight:700;color:#B0173A;margin:0 0 10px">早急に対応してください。決済の案内が済んでいるか、アクセラに引き継いだかを今日中に確認してください。</div>';
+  hot.forEach(c=>{ const cl=closers.find(x=>x.id===c.closer_id);
+    const url=(c.room_id&&!c.room_id.startsWith('name:'))?('https://autosns.jp/chat#/room/'+c.room_id):'';
+    h+='<div style="background:#fff;border:1px solid #F3B7C4;border-radius:10px;padding:10px 12px;margin:6px 0">'
+     +'<b style="font-size:16px">'+esc(c.customer||'')+'</b>　'
+     +(url?'<a href="'+esc(url)+'" target="_blank" rel="noopener" style="font-weight:800;color:#B0173A">プロラインを開く ↗</a>':'<span class="muted">リンクなし</span>')
+     +'<div class="muted" style="font-size:12.5px;margin-top:2px">'+esc(c.alliance||'')+'・'+esc(cl?cl.name:c.closer_id)+'　面談'+fmtMD(c.meeting_date)+'から<b style="color:#B0173A">'+c.days+'日</b>　'+esc(c.status||'')+'</div></div>';
+  });
+  return h+'</div>';
+}
 function renderOpenCasesTable(list, showCloser){
   if(!list.length) return '<div class="empty">追客中の案件はありません（シート上）。</div>';
   const order={pipe:0,wait:1,blank:2};
@@ -882,6 +898,7 @@ function renderCloser(cid){
      +'ご自身の報告は'+(meName?'上の「<b>'+esc(meName)+'</b>」タブ（<span class="tag-me">あなた</span>）':'ご自身のタブ')+'から入力してください。</div>';
   }
 
+  h+=renderVerbalAlert(openCases.filter(x=>x.closer_id===cid));
   // KPI
   h+='<div class="card"><h3><span class="bar"></span>'+esc(c.name)+'　<span class="muted">（'+curYM()+'）</span>'+(st.auto?'　'+syncBadge():'')+'</h3>'
    +'<div class="kpis">'
