@@ -2,7 +2,9 @@
 -- 2026-10-19 仕入れコース（別枠）の報告項目を追加
 -- Supabase ダッシュボード → SQL Editor に丸ごと貼って RUN するだけ
 -- ・ADD COLUMN IF NOT EXISTS なので、何度実行しても安全（既存データはそのまま）
+-- ・DROP を使わないので、SQL Editor の「破壊的操作」確認ダイアログは出ません
 -- ・未実行の間もボードは動きます（仕入れコースの内容は面談メモの先頭／日次報告メモの末尾に書き足して保存）
+-- ・事前入力リンク: https://supabase.com/dashboard/project/<project-ref>/sql/new?content=<このSQLをURLエンコード>
 -- ============================================================
 
 -- 面談報告（顧客ごと）：仕入れコースの案内状況と、後日提案の予定
@@ -22,9 +24,18 @@ CREATE OR REPLACE FUNCTION sc_is_lead() RETURNS boolean
   LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   SELECT EXISTS (SELECT 1 FROM sc_access WHERE email = lower(auth.jwt() ->> 'email') AND role_hint IN ('owner','exec'));
 $$;
-DROP POLICY IF EXISTS "sc_access_lead_write" ON sc_access;
-CREATE POLICY "sc_access_lead_write" ON sc_access FOR ALL TO authenticated
-  USING (sc_is_lead()) WITH CHECK (sc_is_lead());
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='sc_access' AND policyname='sc_access_lead_write') THEN
+    CREATE POLICY "sc_access_lead_write" ON sc_access FOR ALL TO authenticated
+      USING (sc_is_lead()) WITH CHECK (sc_is_lead());
+  END IF;
+END $$;
 
 -- 画面からすぐ使えるように API（PostgREST）のスキーマキャッシュを更新
 NOTIFY pgrst, 'reload schema';
+
+-- 確認（結果が 5 / 2 / 1 なら完了）
+SELECT
+  (SELECT count(*) FROM information_schema.columns WHERE table_name='sc_deals'   AND column_name LIKE 'shiire%') AS deals_cols,
+  (SELECT count(*) FROM information_schema.columns WHERE table_name='sc_reports' AND column_name LIKE 'shiire%') AS report_cols,
+  (SELECT count(*) FROM pg_policies WHERE policyname='sc_access_lead_write') AS policy;
