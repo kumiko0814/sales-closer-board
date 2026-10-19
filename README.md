@@ -14,8 +14,13 @@
 | `supabase_config.js` | Supabase接続＋Slack連携URL設定 |
 | `schema.sql` | テーブル定義＋アクセス制御（PIIなし・公開OK） |
 | `setup.html` | くみこ用セットアップ手順 |
-| `slack-bot.gs` | フォーム→マーケ03自動投稿（GAS Web App、Webhookはサーバ側保管） |
+| `slack-bot.gs` | Slack中継（GAS Web App）。本番 `scripts/closer-slack-relay/Code.gs` の公開ミラー（Botトークンはスクリプトプロパティ `SLACK_BOT_TOKEN`、ここには載せない） |
 | `SEED_PRIVATE.sql` | 名簿・メール・目標（**非公開／gitignore**。Supabaseに直接投入） |
 
 ## セットアップ
 `setup.html` を参照（3ステップ）。
+
+## 追加SQL（migrations/）
+- `migrations/2026-10-19_shiire.sql`（仕入れコースの報告項目）を Supabase の SQL Editor に貼って RUN（何度実行しても安全）
+- 未実行でもボードは動きます（仕入れコースの内容はメモに書き足して保存し、上司には「列が未作成」と表示）
+- 同じSQLで、集計タブの「名簿管理（くみこ専用）」からログイン許可メール（sc_access）を追加できるようになります

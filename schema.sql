@@ -49,6 +49,9 @@ CREATE TABLE IF NOT EXISTS sc_reports (
   p_sched       INTEGER DEFAULT 0,           -- 日程調整中
   p_resched     INTEGER DEFAULT 0,           -- リスケ
   p_cooloff     INTEGER DEFAULT 0,           -- クーリングオフ対応中
+  -- 仕入れコース（別枠・成約数 closed には含めない）※既存テーブルには migrations/2026-10-19_shiire.sql で追加
+  shiire_proposed INTEGER DEFAULT 0,         -- 仕入れコース 提案数
+  shiire_closed   INTEGER DEFAULT 0,         -- 仕入れコース 成約数
   note          TEXT DEFAULT '',             -- ネクストアクション／所感
   created_at    TIMESTAMPTZ DEFAULT NOW(),
   updated_at    TIMESTAMPTZ DEFAULT NOW(),
@@ -63,6 +66,12 @@ CREATE TABLE IF NOT EXISTS sc_deals (
   deal_date   DATE,                          -- 面談／合意日
   status      TEXT DEFAULT '口頭合意〜入金前',  -- 口頭合意〜入金前 / ローン申請中 / 入金完了 / 辞退 など
   memo        TEXT DEFAULT '',
+  -- 仕入れコース（別枠）※既存テーブルには migrations/2026-10-19_shiire.sql で追加
+  shiire_status    TEXT DEFAULT '未案内',     -- 未案内 / 提案済み / 後日提案 / 提案しない / 仕入れコース成約
+  shiire_plan_date DATE,                     -- 後日提案の予定日
+  shiire_plan_time TEXT DEFAULT '',          -- 後日提案の時間帯：午前 / 昼 / 夕方 / 夜 / 未定
+  shiire_note      TEXT DEFAULT '',          -- 提案しない理由・ひとこと
+  shiire_at        DATE,                     -- 提案日（提案済み／成約にした日。提案数・成約数はこの日で数える）
   created_at  TIMESTAMPTZ DEFAULT NOW(),
   updated_at  TIMESTAMPTZ DEFAULT NOW()
 );

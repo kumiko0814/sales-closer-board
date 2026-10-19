@@ -114,6 +114,15 @@ header .wrap{padding-bottom:0;display:flex;align-items:center;gap:14px;flex-wrap
   .kpi .val{font-size:23px}
   .deals-row{grid-template-columns:1fr 1fr;}
 }
+/* 面談報告フォーム：1段目（顧客情報）＋2段目（仕入れコース） */
+.deals-row.dl-main{grid-template-columns:0.8fr 1fr 105px 140px 1fr 1fr}
+.shiire-row{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-bottom:8px}
+.shiire-row .fld{flex:0 0 150px}
+.shiire-row .fld.grow{flex:1 1 220px}
+.shiire-row .fld.btnf{flex:0 0 auto}
+.shiire-sel{font-size:12px;padding:4px 6px;border-radius:6px;border:1px solid #d5e0ee;font-family:inherit;background:#fff}
+@media(max-width:640px){ .deals-row.dl-main{grid-template-columns:1fr 1fr} }
+@media(max-width:560px){ .deals-row.tg-row{display:flex;flex-wrap:wrap} .deals-row.tg-row .fld{flex:1 1 130px} }
 .empty{color:var(--sub);font-size:13px;padding:18px;text-align:center}
 /* 口頭合意→入金 の段階バー */
 .stepper{display:inline-flex;align-items:center;gap:1px;white-space:nowrap}
@@ -217,6 +226,7 @@ header .wrap{padding-bottom:0;display:flex;align-items:center;gap:14px;flex-wrap
       <li>自分のタブの「<b>面談予定</b>」を見る。面談が終わった予約は自動で<b>「終了・結果待ち」</b>になります</li>
       <li>その行の右にある「<b>結果を入力</b>」を押す → 下の「面談報告を入力」に <b>顧客名・アライアンス・プロラインリンク</b>が自動で入ります</li>
       <li><b>結果（ステータス）</b>を選び、必要ならメモを書いて「<b>追加</b>」を押す</li>
+      <li>仕入れコースを案内したら「<b>仕入れコース</b>」も選ぶ（成約とは別枠で数えます）。「<b>後日提案</b>」は提案予定日と時間帯を入れると「<b>仕入れコース 提案予定（期限切れ〜7日先）</b>」に出ます</li>
       <li>これだけで → ① 追客リストに載る　② <b>マーケ07_プロライン運営の面談報告スレへ自動投稿</b>（Slackに手で書く必要なし）</li>
       <li>結果が変わったら「<b>結果を入力</b>」から入れ直しでOK。「入金完了／辞退」にすると追客リストから自動で外れます</li>
     </ol>
@@ -286,7 +296,18 @@ const PIPE=[
   ['p_before','面談前'],['p_after','面談後〜判断前'],['p_verbal','口頭合意〜入金前'],
   ['p_loan','ローン申請中'],['p_sched','日程調整中'],['p_resched','リスケ'],['p_cooloff','クーリングオフ対応中']
 ];
+// 仕入れコース（本コースとは別枠。成約には混ぜない）
+const SHIIRE_LIST=['未案内','提案済み','後日提案','提案しない','仕入れコース成約'];
+const SHIIRE_TIMES=['午前','昼','夕方','夜','未定'];
+const SHIIRE_NOTE_ST=['提案済み','提案しない','仕入れコース成約']; // 理由／ひとこと欄を出す状態
+const SHIIRE_NOTE_RE=/\n?仕入れコース 提案(\d+)／成約(\d+)$/;   // 列が無い間の日次報告メモ末尾
+// 仕入れコースの列が Supabase にあるか（null=未判定 / true / false）。false の間はメモに書き足して保存する
+let shiireCols={deals:null, reports:null};
+function isShiireColErr(err){ const m=String(err&&err.message||''); return /shiire/.test(m) && /column|does not exist|schema cache/i.test(m); }
 let closers=[], targets={}, reports=[], deals=[], mstats={}, syncMeta=null, appts=[], openCases=[];
+let dealsAll=[];   // 重複除去前の sc_deals（削除時に同名の重複行も探す）
+let rosterAll=[];  // 名簿管理（上司のみ）：無効の人も含む sc_closers
+let rpExtra={}, rpExtraLoading={}; // 今月以外の日次報告（日付を選んだ時に1件だけ読む）。キー cid|date
 let gbTeamTarget=0; // 目標ボード(gb_targets)の当月合計。クローザー目標が未入力の月のチーム目標に使う
 let fsRows=[]; // クローザー空き枠（closer-free-slots GAS の合成行 _fs_*）
 // ボードから外すクローザー（くみこ指示 2026-09-08: 永田さんを削除）。DBの active フラグは残っているため、恒久化するなら sc_closers.active=false
@@ -299,12 +320,22 @@ function syncBadge(){
   return '<span class="pill g" style="font-weight:700">シート自動連携'+when+'</span>';
 }
 let activeTab='__sum__', started=false, editing=false;
+// 入力中（editing）やプルダウンを開いている間は自動更新で描き直さない（開いたセレクトが閉じる・入力が消えるのを防ぐ）
+function isBusy(){ if(editing) return true; const a=document.activeElement;
+  return !!(a && /^(SELECT|INPUT|TEXTAREA)$/.test(a.tagName) && a.closest && a.closest('#view')); }
+// 保存結果のメッセージ：6秒ごとの再描画で消えないよう、15秒間は描き直し後も出す（タブごと）
+let lastMsgs={};
+function showMsg(id,text,cls){ lastMsgs[activeTab+'|'+id]={text:text,cls:cls||'',at:Date.now()};
+  const e=document.getElementById(id); if(e){ e.className='msg '+(cls||''); e.textContent=text; } }
+function restoreMsgs(){ const now=Date.now(); Object.keys(lastMsgs).forEach(k=>{ const m=lastMsgs[k];
+  if(now-m.at>15000){ delete lastMsgs[k]; return; } const i=k.indexOf('|'); if(k.slice(0,i)!==activeTab) return;
+  const e=document.getElementById(k.slice(i+1)); if(e){ e.className='msg '+m.cls; e.textContent=m.text; } }); }
 
 // 入力ドラフト保持：タブ切替・6秒自動更新の再描画で入力中テキストが消えないようにする
 let drafts={};
 function _saveDraft(id,v){ drafts[activeTab+'|'+id]=v; }
-document.addEventListener('input',e=>{ const t=e.target; if(t&&t.id&&/^(dl_|rp_)/.test(t.id)) _saveDraft(t.id,t.value); });
-document.addEventListener('change',e=>{ const t=e.target; if(t&&t.id&&/^(dl_|rp_)/.test(t.id)) _saveDraft(t.id,t.value); });
+document.addEventListener('input',e=>{ const t=e.target; if(t&&t.id&&/^(dl_|rp_|rs_)/.test(t.id)) _saveDraft(t.id,t.value); });
+document.addEventListener('change',e=>{ const t=e.target; if(t&&t.id&&/^(dl_|rp_|rs_)/.test(t.id)) _saveDraft(t.id,t.value); });
 function restoreDrafts(){ Object.keys(drafts).forEach(k=>{ const i=k.indexOf('|'); if(k.slice(0,i)!==activeTab) return;
   const e=document.getElementById(k.slice(i+1)); if(e) e.value=drafts[k]; }); }
 function clearDrafts(prefix){ Object.keys(drafts).forEach(k=>{ const i=k.indexOf('|');
@@ -328,6 +359,7 @@ function setConn(ok,txt){ document.getElementById('connDot').classList.toggle('o
 
 // ---- 日付ユーティリティ ----
 function todayStr(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function addDaysStr(k){ const d=new Date(); d.setDate(d.getDate()+k); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function ym(d){ d=d||new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
 function curYM(){ return ym(); }
 function fmtMD(s){ if(!s) return '—'; const p=s.split('-'); const w=['日','月','火','水','木','金','土'][new Date(s+'T00:00:00').getDay()]; return (+p[1])+'/'+(+p[2])+'('+w+')'; }
@@ -382,7 +414,7 @@ function closeHelp(){ document.getElementById('helpModal').classList.remove('on'
 // ============================================================
 // データ読み込み
 // ============================================================
-async function loadAll(){
+async function loadAll(auto){ // auto=true：6秒ごと／フォーカス時の自動更新（入力中なら描き直さない）
   if(!sb) return;
   try{
     const [c,t,r,d]=await Promise.all([
@@ -392,8 +424,14 @@ async function loadAll(){
       sb.from('sc_deals').select('*').order('deal_date',{ascending:true})
     ]);
     closers=(c.data||[]).filter(x=>HIDDEN_CLOSERS.indexOf(x.id)===-1); reports=r.data||[];
-    // 重複除去（同一 担当×顧客×リンク の二重登録を1件に）
-    { const seen=new Set(); deals=(d.data||[]).filter(x=>{ const k=(x.closer_id||'')+'|'+(x.customer||'')+'|'+(x.proline_url||''); if(seen.has(k)) return false; seen.add(k); return true; }); }
+    // 重複除去（同一 担当×顧客×リンク の二重登録を1件に）。残すのは最後に更新した行＝「結果を入力」で入れ直した内容
+    // （以前は最初の行が残り、入れ直した結果・仕入れコースが画面に出なかった。同日の行は並びが不定で表示が揺れた）
+    { const dk=x=>(x.closer_id||'')+'|'+(x.customer||'')+'|'+(x.proline_url||''), ts=x=>String(x.updated_at||x.created_at||''), best={};
+      (d.data||[]).forEach(x=>{ const k=dk(x); if(!best[k] || ts(x)>=ts(best[k])) best[k]=x; });
+      deals=(d.data||[]).filter(x=>best[dk(x)]===x); dealsAll=d.data||[]; }
+    // 仕入れコースの列の有無（行が1件でもあれば判定できる。提案日 shiire_at が無い＝SQLが古い版のときも「未作成」扱い）
+    if((d.data||[]).length) shiireCols.deals=('shiire_status' in d.data[0]) && ('shiire_at' in d.data[0]);
+    if(reports.length) shiireCols.reports=('shiire_proposed' in reports[0]);
     targets={}; (t.data||[]).forEach(x=>targets[x.closer_id]=x.target_deals);
     // シート自動連携（sc_month_stats / sc_sync_meta）※テーブル未作成でもエラーにしない
     mstats={}; syncMeta=null;
@@ -422,16 +460,20 @@ async function loadAll(){
     if(isLead()){ try{
       const br=await sb.from('sc_bug_reports').select('id,description,bug_user,page,ts,time_str,image_count,recent_errors,env,app_state').order('ts',{ascending:false}).limit(200);
       bugReports=br&&br.data||[];
-    }catch(e){ /* バグ報告テーブル未導入 */ } }
+    }catch(e){ /* バグ報告テーブル未導入 */ }
+      // 名簿管理パネル用（無効の人も含む）
+      try{ const ra=await sb.from('sc_closers').select('*').order('sort_order'); if(ra&&!ra.error) rosterAll=ra.data||[]; }catch(e){}
+    }
     setConn(true,'接続OK・'+curYM());
+    if(auto && isBusy()) return; // 読み込み中に入力・プルダウンを開いた → 描き直しは次回に
     render();
   }catch(e){ setConn(false,'読込エラー'); console.error(e); _autoReportBug('データ読込エラー', String(e&&e.message||e)); }
 }
 function startBoard(){
   if(started) return; started=true;
   buildTabs(); loadAll();
-  setInterval(()=>{ if(!editing) loadAll(); }, 6000);
-  window.addEventListener('focus',()=>{ if(!editing) loadAll(); });
+  setInterval(()=>{ if(!isBusy()) loadAll(true); }, 6000);
+  window.addEventListener('focus',()=>{ if(!isBusy()) loadAll(true); });
 }
 
 // ログイン中メール → 自分のクローザーID（本人タブ判定・編集権限に使う）
@@ -506,13 +548,13 @@ function teamStats(){
     return { src:'sheet', targetSrc, meetings:n(all.meetings), closed:closedT, won, instant:0, target, verbalStock:pipe,
       rate: dec?Math.round(won/dec*100):0, rateInc: inc?Math.round(won/inc*100):0, instRate:0,
       achieve: target?Math.round(closedT/target*100):0, blank:n(all.instant),
-      openDealCount: deals.filter(d=>d.status!=='入金完了'&&d.status!=='辞退').length };
+      openDealCount: deals.filter(isOpenDeal).length };
   }
   return { meetings,closed,instant,target,targetSrc,verbalStock,
     rate: meetings?Math.round(closed/meetings*100):0,
     instRate: meetings?Math.round(instant/meetings*100):0,
     achieve: target?Math.round(closed/target*100):0,
-    openDealCount: deals.filter(d=>d.status!=='入金完了'&&d.status!=='辞退').length };
+    openDealCount: deals.filter(isOpenDeal).length };
 }
 
 // ============================================================
@@ -604,9 +646,9 @@ function buildTabs(){
   bar.innerHTML=html;
   // デフォルトタブ：URL ?me=slug > 自分の名簿 > 集計
   const q=new URLSearchParams(location.search).get('me');
-  if(q && closers.some(c=>c.id===q)) activeTab=q;
+  if(q && !window.__tabInit && closers.some(c=>c.id===q)) activeTab=q; // 最初の1回だけ（名簿の追加・復帰でタブを作り直した時に飛ばない）
   else if(me && activeTab==='__sum__' && !window.__tabInit) activeTab=me;
-  window.__tabInit=true;
+  if(closers.length) window.__tabInit=true; // 名簿を読み込んでから「初回」を終える（読み込み前の空の呼び出しで初回扱いにしない）
   highlight();
 }
 function highlight(){ document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.getAttribute('data-t')===activeTab)); }
@@ -625,6 +667,10 @@ function render(){
   v.innerHTML = activeTab==='__sum__' ? renderSummary() : renderCloser(activeTab);
   if(activeTab!=='__sum__') fillForm(activeTab);
   restoreDrafts(); // 保存済みデータの復元より入力中ドラフトを優先
+  syncDealMatch(); // 面談報告フォームの顧客が既存の案件と同じなら「既存の案件を更新します」
+  syncShiireFields(); // 復元した「仕入れコース」の選択に合わせて、予定日・時間帯／理由欄の表示を合わせる
+  if(document.getElementById('rpPreview')) updateRpPreview(activeTab); // 復元したメモ・仕入れの数をプレビューにも
+  restoreMsgs(); // 直前の保存メッセージ（15秒）
   renderBugAlert();
 }
 
@@ -674,6 +720,7 @@ function renderSummary(){
    +'<li><b>結果（ステータス）とメモ</b>を選んで「<b>追加</b>」→ 追客リストと<b>マーケ07の面談報告スレへ自動反映</b>（Slackへの手打ち不要）</li></ol>'
    +'<div class="more"><button class="btn line sm" onclick="openHelp()">くわしい使い方・見方をひらく</button></div></div>';
   h+=renderVerbalAlert(openCases);
+  h+=shiireColsNotice();
   // チームKPI
   h+='<div class="card"><h3><span class="bar"></span>チーム全体　<span class="muted">（'+curYM()+'）</span>'+(hasSync()?'　'+syncBadge():'')+'</h3>'
    +'<div class="sec-sub">'+(hasSync()?'数字はセールス管理シートから自動連携（10分ごと更新）。<b>成約は入金ベース</b>（先月面談の今月入金分を含む）で、目標ボードと同じ数え方です。'+(s.won!=null&&s.won!==s.closed?'今月面談で決まった分は'+s.won+'件。':''):'今月の面談日ベース集計。パイプラインは各クローザーの最新報告の合計。')+'</div>'
@@ -686,6 +733,8 @@ function renderSummary(){
    +kpi('成約率', s.rate+'<small>%</small>', s.src==='sheet'?('決着ベース／判断待ち込み '+s.rateInc+'%'):('即決率 '+s.instRate+'%'))
    +kpiPink('口頭合意（ローン申請中含む）', s.verbalStock+'<small>件</small>', s.src==='sheet'?'セールス管理シート直読み':('追客中の個別案件 '+s.openDealCount+'件'))
    +'</div></div>';
+  // 仕入れコース 提案予定（期限切れ〜7日先・チーム全員）
+  h+=renderShiirePlan(null);
   // クローザーの空き枠（Googleカレンダー連動）
   h+=renderFreeSlots(null);
   // 今月の成約率（シート直読み・両方の定義）
@@ -719,27 +768,91 @@ function renderSummary(){
     .sort((a,b)=>(a.deal_date||'9')<(b.deal_date||'9')?-1:1);
   if(openCases.length){
     h+='<div class="card"><h3><span class="bar"></span>追客リスト（チーム全員）　<span class="muted">セールス管理シートから自動</span></h3>'+openCasesNote()+renderOpenCasesTable(openCases,true)+'</div>';
-    return h;
+    return h+renderRosterPanel();
   }
   h+='<div class="card"><h3><span class="bar"></span>口頭合意〜入金前の進捗（追客リスト）</h3>'
    +'<div class="sec-sub">各クローザーが個別に登録・後追いしている案件。入金完了/辞退で自動的にこの一覧から外れます。</div>';
   if(!od.length) h+='<div class="empty">追客中の個別案件はありません。</div>';
   else{
-    h+='<div class="scroll"><table class="tbl"><thead><tr><th class="name">アライアンス</th><th class="name">顧客</th><th class="name">担当</th><th>合意日</th><th class="name">進捗（口頭合意→入金）</th><th class="name">ステータス</th><th>プロライン</th><th class="name">メモ</th></tr></thead><tbody>';
+    h+='<div class="scroll"><table class="tbl"><thead><tr><th class="name">アライアンス</th><th class="name">顧客</th><th class="name">担当</th><th>合意日</th><th class="name">進捗（口頭合意→入金）</th><th class="name">ステータス</th><th class="name">仕入れ</th><th>プロライン</th><th class="name">メモ</th></tr></thead><tbody>';
     od.forEach(d=>{ const c=closers.find(x=>x.id===d.closer_id);
       const sk=d.status==='ローン申請中'?'y':'g';
       h+='<tr><td class="name">'+allianceCell(d)+'</td><td class="name">'+esc(d.customer)+'</td><td class="name">'+esc(c?c.name:d.closer_id)+'</td>'
        +'<td>'+fmtMD(d.deal_date)+'</td><td style="text-align:left">'+stageStepper(d.status)+'</td>'
        +'<td style="text-align:left"><span class="pill '+sk+'">'+esc(d.status)+'</span></td>'
+       +'<td style="text-align:left">'+shiireCell(d,canEdit(d.closer_id))+'</td>'
        +'<td style="text-align:center">'+prolineCell(d)+'</td>'
        +'<td class="name" style="white-space:normal;color:var(--sub)">'+esc(d.memo||'')+'</td></tr>';
     });
     h+='</tbody></table></div>';
   }
   h+='</div>';
-  return h;
+  return h+renderRosterPanel();
 }
 
+// 名簿管理（上司のみ・集計タブの一番下）：sc_closers の有効/無効の切り替えと、追加・復帰（SQLを書かずに名簿を直せる）
+function renderRosterPanel(){
+  if(!isLead()) return '';
+  const EF=' onfocus="editing=true" onblur="editing=false"';
+  let h='<div class="card"><h3><span class="bar"></span>名簿管理（くみこ専用）</h3>'
+   +'<div class="sec-sub">クローザーの追加・復帰・無効化。無効にするとタブと集計から外れます（入力済みのデータは残ります）。メールを入れると、その人がこのボードにログインできるようになります。</div>';
+  if(rosterAll.length){
+    h+='<div class="scroll"><table class="tbl"><thead><tr><th class="name">ID</th><th class="name">表示名</th><th class="name">Slack ID</th><th>並び順</th><th class="name">状態</th><th></th></tr></thead><tbody>';
+    rosterAll.forEach(c=>{ const on=c.active!==false;
+      h+='<tr style="'+(on?'':'opacity:.6')+'"><td class="name">'+esc(c.id)+'</td><td class="name">'+esc(c.name)+'</td>'
+       +'<td class="name" style="font-weight:400">'+esc(c.slack_id||'')+'</td><td>'+esc(c.sort_order==null?'':c.sort_order)+'</td>'
+       +'<td class="name"><span class="pill '+(on?'g':'n')+'">'+(on?'有効':'無効')+'</span></td>'
+       +'<td><button class="btn line sm" onclick="toggleCloserActive(\''+esc(c.id)+'\','+(on?'false':'true')+')">'+(on?'無効にする':'有効にする')+'</button></td></tr>'; });
+    h+='</tbody></table></div>';
+  } else h+='<div class="empty">名簿を読み込めませんでした。</div>';
+  h+='<div class="grp">追加・復帰（同じIDがあれば上書きして「有効」に戻します）</div>'
+   +'<div class="form-grid">'
+   +'<div class="fld"><label>ID（英小文字）</label><input id="rs_id" placeholder="例: tanaka" autocomplete="off"'+EF+'></div>'
+   +'<div class="fld"><label>表示名</label><input id="rs_name" placeholder="例: 田中花子" autocomplete="off"'+EF+'></div>'
+   +'<div class="fld"><label>Slack ID</label><input id="rs_slack" placeholder="U…" autocomplete="off"'+EF+'></div>'
+   +'<div class="fld"><label>並び順</label><input id="rs_sort" type="number" min="0" placeholder="100"'+EF+'></div>'
+   +'<div class="fld"><label>メール（ログイン許可）</label><input id="rs_email" type="email" placeholder="例: h.tanaka@merone.co.jp" autocomplete="off"'+EF+'></div>'
+   +'</div>'
+   +'<div style="margin-top:12px"><button class="btn sm" id="rsBtn" onclick="saveCloser()">追加・復帰する</button></div>'
+   +'<div class="msg" id="rsMsg"></div></div>';
+  return h;
+}
+async function saveCloser(){
+  if(!isLead()) return;
+  const v=id=>((document.getElementById(id)||{}).value||'').trim();
+  const id=v('rs_id').toLowerCase(), name=v('rs_name'), slack=v('rs_slack'), so=v('rs_sort'), email=v('rs_email').toLowerCase();
+  const ex=rosterAll.find(c=>c.id===id);
+  if(!/^[a-z0-9_-]+$/.test(id)){ alert('ID は英小文字・数字・「-」「_」で入れてください（例: tanaka）'); return; }
+  if(!name && !ex){ alert('表示名を入れてください'); return; }
+  if(email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ alert('メールアドレスの形を確認してください'); return; }
+  // 空欄の項目は既存の値を残す（復帰のときに Slack ID などを消さない）
+  const row={ id:id, name:name||ex.name, active:true };
+  if(slack || !ex) row.slack_id=slack;
+  if(so!=='') row.sort_order=n(so);
+  const btn=document.getElementById('rsBtn'); if(btn) btn.disabled=true;
+  try{
+    const {error}=await sb.from('sc_closers').upsert(row,{onConflict:'id'});
+    if(error){ alert('名簿を保存できませんでした：'+error.message); return; }
+    let mailNote='';
+    if(email){ // 既に登録済みのメールは役割（owner など）を変えない＝ignoreDuplicates
+      const {error:e2}=await sb.from('sc_access').upsert({email:email, role_hint:'closer'},{onConflict:'email', ignoreDuplicates:true});
+      if(e2){ alert('名簿は保存しましたが、メールのログイン許可を追加できませんでした：'+e2.message+'\n（migrations/2026-10-19_shiire.sql を Supabase で実行すると、ここから追加できるようになります）'); mailNote='（メールは未登録）'; }
+      else mailNote='・ログイン許可 '+email;
+    }
+    editing=false; clearDrafts('rs_'); ['rs_id','rs_name','rs_slack','rs_sort','rs_email'].forEach(k=>{ const e=document.getElementById(k); if(e) e.value=''; });
+    showMsg('rsMsg', row.name+' さんを名簿に'+(ex?'戻しました':'追加しました')+mailNote+'。','ok');
+    await loadAll();
+  } finally { const b=document.getElementById('rsBtn'); if(b) b.disabled=false; }
+}
+async function toggleCloserActive(id, on){
+  if(!isLead()) return;
+  const c=rosterAll.find(x=>x.id===id)||{id:id};
+  if(!on && !confirm((c.name||id)+' さんを無効にしますか？（タブと集計から外れます。データは残ります）')) return;
+  const {error}=await sb.from('sc_closers').update({active:on}).eq('id',id);
+  if(error){ alert('切り替えできませんでした：'+error.message); return; }
+  showMsg('rsMsg',(c.name||id)+' さんを'+(on?'有効':'無効')+'にしました。','ok');
+  await loadAll();
+}
 // 上司（owner/exec）用：全クローザーの月間目標を1画面で入力
 function renderTargetPanel(){
   if(myRole!=='owner' && myRole!=='exec') return '';
@@ -756,9 +869,8 @@ async function setTargetFrom(cid){
   if(!isLead()) return;
   const val=n(document.getElementById('tgi_'+cid).value);
   const {error}=await sb.from('sc_targets').upsert({closer_id:cid,ym:curYM(),target_deals:val,updated_at:new Date().toISOString()},{onConflict:'closer_id,ym'});
-  const m=document.getElementById('tgpMsg');
-  if(error){ m.className='msg err'; m.textContent='保存エラー：'+error.message; }
-  else { editing=false; m.className='msg ok'; m.textContent=(closers.find(c=>c.id===cid)||{}).name+' の目標を保存しました。'; await loadAll(); }
+  if(error){ showMsg('tgpMsg','保存エラー：'+error.message,'err'); }
+  else { editing=false; showMsg('tgpMsg',(closers.find(c=>c.id===cid)||{}).name+' の目標を保存しました。','ok'); await loadAll(); }
 }
 function kpiHero(l,v,sub,pct){ pct=Math.min(pct||0,100);
   return '<div class="kpi hero"><div class="lbl">'+l+'</div><div class="val">'+v+'<small>件</small></div>'
@@ -770,8 +882,8 @@ function roomOf(url){ const m=String(url||'').match(/\/([A-Za-z0-9_-]{6,})\s*$/)
 function normName(s){ return String(s||'').replace(/[\s　]+/g,'').toLowerCase(); }
 function matchDeal(c){ // sc_deals（手入力）を部屋ID→名前の順で突合
   const rid=c.room_id&&!c.room_id.startsWith('name:')?c.room_id:'';
-  let d=rid?deals.find(x=>roomOf(x.proline_url)===rid):null;
-  if(!d) d=deals.find(x=>normName(x.customer)===normName(c.customer) && normName(x.customer));
+  let d=rid?deals.find(x=>x.closer_id===c.closer_id && roomOf(x.proline_url)===rid):null;
+  if(!d) d=deals.find(x=>x.closer_id===c.closer_id && normName(x.customer)===normName(c.customer) && normName(x.customer));
   return d||null;
 }
 function bucketPill(b,st){ const cls=b==='pipe'?(/ローン/.test(st)?'y':'g'):(b==='wait'?'g':'n'); return '<span class="pill '+cls+'">'+esc(st||(b==='blank'?'結果未記入':b))+'</span>'; }
@@ -794,13 +906,14 @@ function renderOpenCasesTable(list, showCloser){
   if(!list.length) return '<div class="empty">追客中の案件はありません（シート上）。</div>';
   const order={pipe:0,wait:1,blank:2};
   list=list.slice().sort((a,b)=>(order[a.bucket]-order[b.bucket])||(b.days-a.days));
-  let h='<div class="scroll"><table class="tbl"><thead><tr><th class="name">アライアンス</th><th class="name">顧客</th>'+(showCloser?'<th class="name">担当</th>':'')+'<th>面談日</th><th>経過</th><th class="name">ステータス（シート）</th><th>プロライン</th><th class="name">ボードのメモ</th></tr></thead><tbody>';
+  let h='<div class="scroll"><table class="tbl"><thead><tr><th class="name">アライアンス</th><th class="name">顧客</th>'+(showCloser?'<th class="name">担当</th>':'')+'<th>面談日</th><th>経過</th><th class="name">ステータス（シート）</th><th class="name">仕入れ</th><th>プロライン</th><th class="name">ボードのメモ</th></tr></thead><tbody>';
   list.forEach(c=>{ const cl=closers.find(x=>x.id===c.closer_id); const d=matchDeal(c);
     const url=d&&d.proline_url?d.proline_url:(c.room_id&&!c.room_id.startsWith('name:')?('https://autosns.jp/chat#/room/'+c.room_id):'');
     const late=c.bucket!=='blank'&&c.days>=4;
     h+='<tr><td class="name">'+esc(c.alliance||'')+'</td><td class="name">'+esc(c.customer||'')+'</td>'+(showCloser?('<td class="name">'+esc(cl?cl.name:c.closer_id)+'</td>'):'')
      +'<td>'+fmtMD(c.meeting_date)+'</td><td style="'+(late?'color:var(--bad);font-weight:700':'')+'">'+c.days+'日'+(late?' ⚠':'')+'</td>'
      +'<td style="text-align:left">'+bucketPill(c.bucket,c.status)+'</td>'
+     +'<td style="text-align:left">'+(d?shiireCell(d,false):'')+'</td>'
      +'<td style="text-align:center">'+(url?('<a href="'+esc(url)+'" target="_blank" rel="noopener" class="btn pink sm" style="text-decoration:none;white-space:nowrap;padding:4px 11px">プロライン↗</a>'):'<span class="muted">—</span>')+'</td>'
      +'<td class="name" style="white-space:pre-wrap;color:var(--sub)">'+esc(d&&d.memo?d.memo:'')+'</td></tr>';
   });
@@ -822,6 +935,9 @@ function fillReportFromAppt(custEnc, alliance, urlEnc){
   const cust=decodeURIComponent(custEnc||''), url=decodeURIComponent(urlEnc||'');
   const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.value=v; _saveDraft(id,v); };
   set('dl_cust',cust); set('dl_alliance',alliance||''); set('dl_proline',url);
+  // 別の顧客の内容が残らないよう仕入れコース欄を戻してから、既存の案件があればその記録を引き継ぐ
+  set('dl_shiire','未案内'); set('dl_shiire_date',''); set('dl_shiire_time','未定'); set('dl_shiire_note','');
+  dlMatchId=null; syncDealMatch(); syncShiireFields();
   editing=true;
   const card=document.getElementById('reportCard'); if(card) card.scrollIntoView({behavior:'smooth',block:'start'});
   setTimeout(()=>{ const s=document.getElementById('dl_status'); if(s) s.focus(); }, 400);
@@ -882,6 +998,135 @@ function allianceCell(d){
 }
 function kpiPink(l,v,sub){ return '<div class="kpi pink"><div class="lbl">'+l+'</div><div class="val">'+v+'</div><div class="sub">'+(sub||'')+'</div></div>'; }
 
+// ============================================================
+// 仕入れコース（別枠）：面談報告の「仕入れ」欄・後日提案の予定
+// ============================================================
+// 実際の仕入れコースの状態：列の値。列が空（SQL実行前の行）なら、メモ先頭の「【仕入れコース】…」「【仕入れコース日】YYYY-MM-DD」から読む
+// 返り値 { st:状態, date:提案予定日, time:時間帯, note:理由・ひとこと, at:提案日（提案数・成約数を数える日） }
+const SHIIRE_MEMO_RE=/^【仕入れコース】(.*)$/m, SHIIRE_AT_RE=/^【仕入れコース日】(\d{4}-\d{2}-\d{2})\s*$/m;
+function shiireMemoStrip(memo){ return String(memo||'').replace(/^【仕入れコース(?:日)?】[^\n]*(?:\n|$)/gm,'').replace(/\n+$/,''); }
+function shiireOf(d){
+  d=d||{}; const memo=String(d.memo||'');
+  let st=d.shiire_status||'', date=d.shiire_plan_date||null, time=d.shiire_plan_time||'', note=d.shiire_note||'';
+  if(!st || st==='未案内'){ const m=memo.match(SHIIRE_MEMO_RE), p=m?parseShiireLine(m[1],d):null;
+    if(p){ st=p.st; date=p.date; time=p.time; note=p.note; } }
+  const a=memo.match(SHIIRE_AT_RE);
+  return { st:st||'未案内', date:date, time:time, note:note, at:d.shiire_at||(a?a[1]:null) };
+}
+// 「後日提案（10/25(日) 夜）」「提案しない（理由）」「成約」などメモの1行 → 状態（shiireText の逆）
+function parseShiireLine(s, d){
+  s=String(s||'').trim();
+  let m=s.match(/^後日提案（(?:(\d{1,2})\/(\d{1,2})\([日月火水木金土]\)|日付未定)(?: (午前|昼|夕方|夜))?）/);
+  if(m) return { st:'後日提案', date:m[1]?shiireYearFix(+m[1],+m[2],d):null, time:m[3]||'未定', note:'' };
+  m=s.match(/^(提案済み|提案しない|成約)(?:（(.*)）)?$/);
+  if(m) return { st:m[1]==='成約'?'仕入れコース成約':m[1], date:null, time:'', note:m[2]||'' };
+  return null;
+}
+// M/D に年を付ける：面談日（無ければ登録日）の年。半年以上前になるなら翌年（12月の面談→1月の予定）
+function shiireYearFix(mo, da, d){
+  const base=String((d&&(d.deal_date||d.created_at))||todayStr()).slice(0,10), y=+base.slice(0,4), pad=x=>String(x).padStart(2,'0');
+  let s=y+'-'+pad(mo)+'-'+pad(da);
+  if(s<base && (new Date(base+'T00:00:00')-new Date(s+'T00:00:00'))>180*86400000) s=(y+1)+'-'+pad(mo)+'-'+pad(da);
+  return s;
+}
+function shiireIsProposed(st){ return st==='提案済み'||st==='仕入れコース成約'; } // 提案数は成約を含む
+function shiireCountDate(d){ return shiireOf(d).at||d.deal_date||''; } // 提案数・成約数はこの日で数える（後から提案した分も入る）
+// その日の 仕入れコース 提案数（成約含む）・成約数（面談報告から数える）
+function shiireDayCounts(cid, date){
+  const ss=deals.filter(x=>x.closer_id===cid && shiireCountDate(x)===date).map(shiireOf);
+  return { p:ss.filter(s=>shiireIsProposed(s.st)).length, c:ss.filter(s=>s.st==='仕入れコース成約').length };
+}
+function shiireDue(d){ const s=shiireOf(d); return !!s.date && s.date<=todayStr(); } // 予定日が今日以前＝⏰
+function shiireMD(s){ const p=String(s||'').split('-'); return p.length===3?(+p[1])+'/'+(+p[2]):''; }
+function shiireTimeTxt(t){ return t&&t!=='未定'?' '+t:''; }
+// Slack・メモ用の文言（例: 後日提案（10/25(日) 夜）／提案しない（理由）／成約）。未案内は ''
+function shiireText(d){
+  const s=shiireOf(d), st=s.st; if(st==='未案内') return '';
+  if(st==='後日提案') return '後日提案（'+(s.date?fmtMD(s.date):'日付未定')+shiireTimeTxt(s.time)+'）';
+  return (st==='仕入れコース成約'?'成約':st)+(s.note?'（'+s.note+'）':'');
+}
+// 一覧の「仕入れ」セル。editable なら行内で状態・予定日・時間帯を変えられる（列が未作成の間は表示のみ）
+function shiireCell(d, editable){
+  const s=shiireOf(d), st=s.st, due=st==='後日提案'&&shiireDue(d);
+  const note=s.note?'<div class="muted" style="font-size:11px;white-space:normal;margin-top:2px">'+esc(s.note)+'</div>':'';
+  if(editable && shiireCols.deals!==false){
+    const EF=' onfocus="editing=true" onblur="editing=false"', id=esc(d.id);
+    let h='<select class="shiire-sel" onchange="setDealShiire(\''+id+'\',{shiire_status:this.value})"'+EF+'>'
+      +SHIIRE_LIST.map(x=>'<option value="'+x+'"'+(x===st?' selected':'')+'>'+(x==='仕入れコース成約'?'成約':x)+'</option>').join('')+'</select>';
+    if(st==='後日提案') h+='<div style="display:flex;gap:4px;align-items:center;margin-top:4px">'+(due?'⏰':'')
+      +'<input type="date" class="shiire-sel" value="'+esc(s.date||'')+'" onfocus="editing=true" onblur="editing=false;if(this.value!==this.defaultValue)setDealShiire(\''+id+'\',{shiire_plan_date:this.value||null})">'
+      +'<select class="shiire-sel" onchange="setDealShiire(\''+id+'\',{shiire_plan_time:this.value})"'+EF+'>'
+      +SHIIRE_TIMES.map(x=>'<option'+(x===(s.time||'未定')?' selected':'')+'>'+x+'</option>').join('')+'</select></div>';
+    return h+note;
+  }
+  if(st==='未案内') return '';
+  if(st==='後日提案') return '<span class="pill '+(due?'r':'y')+'">'+(due?'⏰':'')+'後日 '+(s.date?shiireMD(s.date):'日付未定')+esc(shiireTimeTxt(s.time))+'</span>'+note;
+  return '<span class="pill '+(st==='仕入れコース成約'?'g':'n')+'">'+(st==='仕入れコース成約'?'成約':esc(st))+'</span>'+note;
+}
+// 面談報告フォームの顧客が、同じ担当の既存の案件と同じ人か（プロラインの部屋ID → 顧客名＋アライアンス の順）。
+// 一致したら「追加」はその行を更新する（新しい行を足すと、前の行の「後日提案」などが表示から消えるため）
+function custKey(s){ return normName(s).replace(/(さん|様)$/,''); }
+function findExistingDeal(cid, cust, alliance, url){
+  const rid=roomOf(url), ck=custKey(cust), ak=normName(alliance), ts=x=>String(x.updated_at||x.created_at||'');
+  const mine=deals.filter(x=>x.closer_id===cid), newest=l=>l.sort((a,b)=>ts(a)<ts(b)?1:-1)[0]||null;
+  if(rid){ const r=newest(mine.filter(x=>roomOf(x.proline_url)===rid)); if(r) return r; }
+  if(!ck) return null;
+  return newest(mine.filter(x=>custKey(x.customer)===ck && (!ak || !normName(x.alliance) || normName(x.alliance)===ak)
+    && (!rid || !roomOf(x.proline_url))));
+}
+let dlMatchId=null; // いまフォームが指している既存の案件（一致が変わった時だけ、仕入れコースの記録を引き継ぐ）
+function syncDealMatch(){
+  const hint=document.getElementById('dlMatchHint'); if(!hint) return;
+  const g=id=>{ const e=document.getElementById(id); return e?e.value:''; };
+  const m=findExistingDeal(activeTab, g('dl_cust'), g('dl_alliance'), g('dl_proline'));
+  if(m && m.id!==dlMatchId){ // 新しく一致した → 今の仕入れコースの記録をフォームに入れる（「未案内」で上書きして消さない）
+    const s=shiireOf(m), set=(id,v)=>{ const e=document.getElementById(id); if(e){ e.value=v; _saveDraft(id,v); } };
+    set('dl_shiire',s.st); set('dl_shiire_date',s.date||''); set('dl_shiire_time',s.time||'未定'); set('dl_shiire_note',s.note||'');
+    syncShiireFields();
+  }
+  dlMatchId=m?m.id:null;
+  hint.textContent=m?'既存の案件を更新します（'+(m.customer||'')+(m.deal_date?'・'+fmtMD(m.deal_date):'')+'）':'';
+}
+// 面談報告フォーム：「仕入れコース」の選択に合わせて 予定日・時間帯（後日提案）／理由・ひとこと 欄を出し分け
+function syncShiireFields(){
+  const s=document.getElementById('dl_shiire'); if(!s) return;
+  const v=s.value, tg=(id,on)=>{ const e=document.getElementById(id); if(e) e.classList.toggle('hide',!on); };
+  tg('dlShiireDateBox',v==='後日提案'); tg('dlShiireTimeBox',v==='後日提案'); tg('dlShiireNoteBox',SHIIRE_NOTE_ST.indexOf(v)>-1);
+  const l=document.getElementById('dlShiireNoteLbl'), i=document.getElementById('dl_shiire_note');
+  if(l) l.textContent=v==='提案しない'?'理由':'ひとこと（任意）';
+  if(i) i.placeholder=v==='提案しない'?'例：今は本コースに集中したい':'例：来月から始めたい';
+}
+// 仕入れコース 提案予定（期限切れ〜7日先）：後日提案で予定日が7日後まで（過ぎた分も⏰で残す）。cid=null でチーム全員。0件なら出さない
+function renderShiirePlan(cid){
+  const limS=addDaysStr(7);
+  const tIdx=t=>{ const i=SHIIRE_TIMES.indexOf(t||'未定'); return i<0?SHIIRE_TIMES.length:i; };
+  const list=deals.map(d=>({d:d,s:shiireOf(d)}))
+    .filter(x=>x.s.st==='後日提案' && x.s.date && x.s.date<=limS
+      && (cid?x.d.closer_id===cid:closers.some(c=>c.id===x.d.closer_id)))
+    .sort((a,b)=>a.s.date<b.s.date?-1:a.s.date>b.s.date?1:tIdx(a.s.time)-tIdx(b.s.time));
+  if(!list.length) return '';
+  // 操作の案内は、行内で「仕入れ」を変えられる人にだけ出す（閲覧専用の人には出さない）
+  const canOp=cid?canEdit(cid):(isLead()||!!myCloserId());
+  let h='<div class="card"><h3><span class="bar"></span>仕入れコース 提案予定（期限切れ〜7日先）</h3>'
+   +'<div class="sec-sub">面談報告で「後日提案」にした方のうち、提案予定日が7日後までの方です（⏰＝今日または過ぎている）。'
+   +(canOp?'提案したら面談報告の一覧の「仕入れ」を「提案済み」か「成約」に変えると、ここから外れます。':'')+'</div>'
+   +'<div class="scroll"><table class="tbl"><thead><tr><th class="name">顧客</th>'+(cid?'':'<th class="name">担当</th>')+'<th class="name">予定日時</th><th>プロライン</th></tr></thead><tbody>';
+  list.forEach(x=>{ const d=x.d, c=closers.find(y=>y.id===d.closer_id), due=shiireDue(d);
+    h+='<tr><td class="name">'+esc(d.customer)+(d.alliance?' <span class="muted">（'+esc(d.alliance)+'）</span>':'')+'</td>'
+     +(cid?'':'<td class="name">'+esc(c?c.name:d.closer_id)+'</td>')
+     +'<td class="name"'+(due?' style="color:var(--bad)"':'')+'>'+(due?'⏰ ':'')+fmtMD(x.s.date)+esc(shiireTimeTxt(x.s.time))+'</td>'
+     +'<td style="text-align:center">'+prolineCell(d)+'</td></tr>';
+  });
+  return h+'</tbody></table></div></div>';
+}
+// 上司だけに：仕入れコースの列が Supabase に無い（migrations 未実行）ことを知らせる
+function shiireColsNotice(){
+  if(!isLead() || (shiireCols.deals!==false && shiireCols.reports!==false)) return '';
+  return '<div class="card" style="border-color:#efdcc4;background:#fbf5ee;color:#8a6a3c;font-size:13.5px;line-height:1.8">'
+   +'<b>仕入れコースの列が未作成です。migrations の SQL を実行してください</b>（<code>migrations/2026-10-19_shiire.sql</code> を Supabase の SQL Editor で RUN）。'
+   +'それまでは、仕入れコースの内容を面談メモの先頭／日次報告メモの末尾に書き足して保存しています。</div>';
+}
+
 function renderCloser(cid){
   const c=closers.find(x=>x.id===cid); if(!c) return '';
   const st=closerStats(cid);
@@ -900,6 +1145,7 @@ function renderCloser(cid){
   }
 
   h+=renderVerbalAlert(openCases.filter(x=>x.closer_id===cid));
+  h+=shiireColsNotice();
   // KPI
   h+='<div class="card"><h3><span class="bar"></span>'+esc(c.name)+'　<span class="muted">（'+curYM()+'）</span>'+(st.auto?'　'+syncBadge():'')+'</h3>'
    +'<div class="kpis">'
@@ -911,6 +1157,8 @@ function renderCloser(cid){
    +kpiPink('口頭合意（ローン申請中含む）', st.verbalStock+'<small>件</small>', st.src==='sheet'?'セールス管理シート直読み':('追客中 '+st.openDealCount+'件'))
    +'</div></div>';
 
+  // 仕入れコース 提案予定（期限切れ〜7日先・この人の分）
+  h+=renderShiirePlan(cid);
   // 今月の成約率（シート直読み・両方の定義）
   h+=renderFreeSlots(cid);
   h+=renderOcCloser(cid);
@@ -923,8 +1171,13 @@ function renderCloser(cid){
      +'<div class="sec-sub">数字はセールス管理シートから自動で反映されています。入力は不要です。下のボタンで、当月時点の報告を「本日のセールス報告」スレッドへ投稿できます。</div>'
      +'<div class="card" style="background:#f7fafd;box-shadow:none;margin:0 0 12px">'
      +'<div style="font-size:13.5px;line-height:1.9;white-space:pre-wrap" id="rpPreview">'+esc(monthlyReportText(cid))+'</div></div>'
+     +'<div class="grp">本日の仕入れコース（別枠・成約数には含めない。今日の面談報告から自動で数えています。違えば直してください）</div>'
+     +'<div class="form-grid">'
+     +fInput('rp_shiire_proposed','仕入れコース 提案数（成約含む）','number')
+     +fInput('rp_shiire_closed','仕入れコース 成約数','number')
+     +'</div>'
      +'<div class="grp">ひとことネクストアクション（任意）</div>'
-     +'<div class="fld"><textarea id="rp_note2" rows="2" placeholder="口頭合意◯◯さん明日入金予定 など（空欄でもOK）" onfocus="editing=true" onblur="editing=false" oninput="document.getElementById(\'rpPreview\').textContent=monthlyReportText(\''+cid+'\',this.value)"></textarea></div>'
+     +'<div class="fld"><textarea id="rp_note2" rows="2" placeholder="口頭合意◯◯さん明日入金予定 など（空欄でもOK）" onfocus="editing=true" onblur="editing=false" oninput="updateRpPreview(\''+cid+'\')"></textarea></div>'
      +'<div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">'
      +'<button class="btn" id="rpBtn2" onclick="reportMonthly(\''+cid+'\')">この内容でマーケ03に報告</button>'
      +'<span class="muted">※数字の修正はセールス管理シート側で。1時間ごとに自動反映されます。</span></div>'
@@ -945,6 +1198,11 @@ function renderCloser(cid){
      +'<div class="form-grid">'
      +PIPE.map(p=>fInput('rp_'+p[0],p[1],'number')).join('')
      +'</div>'
+     +'<div class="grp">仕入れコース（別枠・上の成約数には含めない）</div>'
+     +'<div class="form-grid">'
+     +fInput('rp_shiire_proposed','仕入れコース 提案数（成約含む）','number')
+     +fInput('rp_shiire_closed','仕入れコース 成約数','number')
+     +'</div>'
      +'<div class="grp">ネクストアクション・所感（任意）</div>'
      +'<div class="fld"><textarea id="rp_note" rows="2" placeholder="口頭合意◯◯さん、明日入金予定／リスケ調整中 など"></textarea></div>'
      +'<div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">'
@@ -963,29 +1221,39 @@ function renderCloser(cid){
    +'<div class="sec-sub"><b>面談が終わったら、ここに結果を入力して「追加」を押すだけ。</b>上の「本日の面談」から「結果を入力」を押すと、顧客名・アライアンス・プロラインリンクが自動で入ります。あとは<b>結果（ステータス）</b>とメモを選んで「追加」。→ ①この追客リストに載る　②マーケ07_プロライン運営の面談報告スレへ自動投稿（Slack手打ち不要）。「入金完了／辞退」にすると追客リストから外れます。</div>';
   if(editable){
     const EF=' onfocus="editing=true" onblur="editing=false"';
-    h+='<div class="deals-row" style="grid-template-columns:0.8fr 1fr 105px 140px 1fr 1fr auto">'
-     +'<div class="fld"><label>アライアンス</label><input id="dl_alliance" placeholder="ABCash 等"'+EF+'></div>'
-     +'<div class="fld"><label>顧客名</label><input id="dl_cust" placeholder="◯◯さん"'+EF+'></div>'
+    h+='<div class="deals-row dl-main">'
+     +'<div class="fld"><label>アライアンス</label><input id="dl_alliance" placeholder="ABCash 等" oninput="syncDealMatch()"'+EF+'></div>'
+     +'<div class="fld"><label>顧客名</label><input id="dl_cust" placeholder="◯◯さん" oninput="syncDealMatch()"'+EF+'></div>'
      +'<div class="fld"><label>合意日</label><input id="dl_date" type="date" value="'+todayStr()+'"'+EF+'></div>'
      +'<div class="fld"><label>ステータス</label><select id="dl_status"'+EF+'>'+STATUS_LIST.map(s=>'<option>'+s+'</option>').join('')+'</select></div>'
-     +'<div class="fld"><label>プロラインURL（任意）</label><input id="dl_proline" placeholder="https://..../pgc/chat/..."'+EF+'></div>'
+     +'<div class="fld"><label>プロラインURL（任意）</label><input id="dl_proline" placeholder="https://..../pgc/chat/..." oninput="syncDealMatch()"'+EF+'></div>'
      +'<div class="fld"><label>メモ</label><textarea id="dl_memo" rows="2" placeholder="ローン審査待ち 等（改行OK）"'+EF+'></textarea></div>'
-     +'<div class="fld"><label>&nbsp;</label><button class="btn pink sm" onclick="addDeal(\''+cid+'\')">追加</button></div>'
+     +'</div>'
+     +'<div id="dlMatchHint" style="font-size:12.5px;font-weight:700;color:var(--navy2);margin:-2px 0 4px"></div>'
+     +'<div class="grp">仕入れコース（別枠・ステータスの成約とは分けて記録）</div>'
+     +'<div class="shiire-row">'
+     +'<div class="fld"><label>仕入れコース</label><select id="dl_shiire" onchange="syncShiireFields()"'+EF+'>'+SHIIRE_LIST.map(s=>'<option>'+s+'</option>').join('')+'</select></div>'
+     +'<div class="fld hide" id="dlShiireDateBox"><label>提案予定日</label><input id="dl_shiire_date" type="date"'+EF+'></div>'
+     +'<div class="fld hide" id="dlShiireTimeBox"><label>時間帯</label><select id="dl_shiire_time"'+EF+'>'+SHIIRE_TIMES.map(s=>'<option'+(s==='未定'?' selected':'')+'>'+s+'</option>').join('')+'</select></div>'
+     +'<div class="fld grow hide" id="dlShiireNoteBox"><label id="dlShiireNoteLbl">理由</label><input id="dl_shiire_note"'+EF+'></div>'
+     +'<div class="fld btnf"><label>&nbsp;</label><button class="btn pink sm" id="dlAddBtn" onclick="addDeal(\''+cid+'\')"'+(dealBusy?' disabled':'')+'>追加</button></div>'
      +'</div>';
   }
   if(my.length){
-    h+='<div class="scroll"><table class="tbl"><thead><tr><th class="name">アライアンス</th><th class="name">顧客</th><th>合意日</th><th class="name">進捗</th><th class="name">ステータス</th><th>プロライン</th><th class="name">メモ</th>'+(editable?'<th></th>':'')+'</tr></thead><tbody>';
+    h+='<div class="scroll"><table class="tbl"><thead><tr><th class="name">アライアンス</th><th class="name">顧客</th><th>合意日</th><th class="name">進捗</th><th class="name">ステータス</th><th class="name">仕入れ</th><th>プロライン</th><th class="name">メモ</th>'+(editable?'<th></th>':'')+'</tr></thead><tbody>';
     my.forEach(d=>{ const done=!isOpenDeal(d);
       h+='<tr style="'+(done?'opacity:.5':'')+'"><td class="name">'+allianceCell(d)+'</td><td class="name">'+esc(d.customer)+'</td><td>'+fmtMD(d.deal_date)+'</td><td style="text-align:left">'+stageStepper(d.status)+'</td>';
       if(editable){
-        h+='<td style="text-align:left"><select onchange="setDealStatus(\''+d.id+'\',this.value)" style="font-size:12px;padding:4px 6px;border-radius:6px;border:1px solid #d5e0ee">'
+        h+='<td style="text-align:left"><select onchange="setDealStatus(\''+d.id+'\',this.value)" onfocus="editing=true" onblur="editing=false" style="font-size:12px;padding:4px 6px;border-radius:6px;border:1px solid #d5e0ee">'
          +STATUS_LIST.map(s=>'<option'+(s===d.status?' selected':'')+'>'+s+'</option>').join('')+'</select></td>'
+         +'<td style="text-align:left">'+shiireCell(d,true)+'</td>'
          +'<td style="text-align:center">'+prolineCell(d)+'</td>'
          +'<td class="name" style="white-space:pre-wrap;color:var(--sub)">'+esc(d.memo||'')+'</td>'
          +'<td><button class="btn line sm" onclick="delDeal(\''+d.id+'\')">削除</button></td>';
       } else {
         const sk=d.status==='ローン申請中'?'y':done?'n':'g';
         h+='<td style="text-align:left"><span class="pill '+sk+'">'+esc(d.status)+'</span></td>'
+         +'<td style="text-align:left">'+shiireCell(d,false)+'</td>'
          +'<td style="text-align:center">'+prolineCell(d)+'</td>'
          +'<td class="name" style="white-space:pre-wrap;color:var(--sub)">'+esc(d.memo||'')+'</td>';
       }
@@ -1000,9 +1268,10 @@ function renderCloser(cid){
   h+='<div class="card"><h3><span class="bar"></span>今月の報告履歴</h3>';
   if(rs.length){
     h+='<div class="scroll"><table class="tbl"><thead><tr><th class="name">日付</th><th>面談</th><th>即決</th><th>成約</th>'
-     +PIPE.map(p=>'<th>'+p[1].replace('〜','〜<br>')+'</th>').join('')+'<th class="name">メモ</th></tr></thead><tbody>';
+     +PIPE.map(p=>'<th>'+p[1].replace('〜','〜<br>')+'</th>').join('')+'<th>仕入れ<br>提案/成約</th><th class="name">メモ</th></tr></thead><tbody>';
     rs.forEach(r=>{ h+='<tr><td class="name">'+fmtMD(r.report_date)+'</td><td class="big">'+n(r.meetings)+'</td><td>'+n(r.instant_close)+'</td><td class="big">'+n(r.closed)+'</td>'
       +PIPE.map(p=>'<td>'+n(r[p[0]])+'</td>').join('')
+      +'<td>'+(r.shiire_proposed!=null?n(r.shiire_proposed)+' / '+n(r.shiire_closed):'—')+'</td>'
       +'<td class="name" style="white-space:pre-wrap;color:var(--sub);max-width:220px">'+esc(r.note||'')+'</td></tr>'; });
     h+='</tbody></table></div>';
   } else h+='<div class="empty">今月の報告はまだありません。</div>';
@@ -1011,7 +1280,7 @@ function renderCloser(cid){
   // 目標設定（owner/exec のみ）
   if(isLead()){
     h+='<div class="card"><h3><span class="bar"></span>月間 成約目標の設定</h3>'
-     +'<div class="deals-row" style="grid-template-columns:150px 130px auto">'
+     +'<div class="deals-row tg-row" style="grid-template-columns:150px 130px auto">'
      +'<div class="fld"><label>対象月</label><input id="tg_ym" value="'+curYM()+'" readonly style="background:#f5f8fc"></div>'
      +'<div class="fld"><label>目標成約数</label><input id="tg_val" type="number" value="'+(st.target||'')+'"></div>'
      +'<div class="fld"><label>&nbsp;</label><button class="btn sm" onclick="setTarget(\''+cid+'\')">保存</button></div>'
@@ -1023,11 +1292,40 @@ function fInput(id,label,type,val){ return '<div class="fld"><label>'+label+'</l
 
 // 既存の当日報告があればフォームに反映
 function fillForm(cid){
-  const dEl=document.getElementById('rp_date'); if(!dEl) return;
-  const load=()=>{ const date=dEl.value; const r=reports.find(x=>x.closer_id===cid&&x.report_date===date);
+  const dEl=document.getElementById('rp_date');
+  if(!dEl){ // 自動連携モード：仕入れコースの2項目だけ、今日の面談報告から数えて入れる（編集可・下書きがあればそちらが優先）
+    const sp=document.getElementById('rp_shiire_proposed'), sc=document.getElementById('rp_shiire_closed'); if(!sp||!sc) return;
+    const t=shiireDayCounts(cid,todayStr()); sp.value=t.p||''; sc.value=t.c||'';
+    [sp,sc].forEach(e=>{ e.onfocus=()=>editing=true; e.onblur=()=>editing=false; e.oninput=()=>updateRpPreview(cid); });
+    return;
+  }
+  const LOAD_IDS=['rp_meetings','rp_instant','rp_closed','rp_shiire_proposed','rp_shiire_closed',...PIPE.map(p=>'rp_'+p[0])];
+  // 再描画で日付だけ下書きから戻ると、数字が別の日のまま送信される → 先に日付を戻し、その日の数字を読んでから下書きを重ねる
+  const dDraft=drafts[cid+'|rp_date']; if(dDraft && dDraft!==dEl.value) dEl.value=dDraft;
+  const load=fromChange=>{ const de=document.getElementById('rp_date'); if(!de) return; const date=de.value, key=cid+'|'+date;
+    // 日付を変えた → 前の日付で打った数字の下書きは捨てる（その日の数字に入れ替わるため）
+    if(fromChange) LOAD_IDS.forEach(id=>delete drafts[cid+'|'+id]);
+    let r=reports.find(x=>x.closer_id===cid&&x.report_date===date) || rpExtra[key] || null;
+    // 今月以外の日付：送信済みの報告を1件だけ読んでから入れる（読み込み中は送信できない＝別の日の数字で上書きしない）
+    const pending = !r && !!date && date.slice(0,7)!==curYM() && !(key in rpExtra);
+    if(pending && !rpExtraLoading[key] && sb){ rpExtraLoading[key]=true;
+      sb.from('sc_reports').select('*').eq('closer_id',cid).eq('report_date',date).maybeSingle().then(res=>{
+        delete rpExtraLoading[key];
+        const e2=document.getElementById('rp_date'), same=activeTab===cid && e2 && e2.value===date;
+        if(res&&res.error){ if(same){ document.getElementById('rpHint').textContent='この日の報告を読み込めませんでした。日付を選び直してください。'; } return; }
+        rpExtra[key]=res&&res.data||null;
+        if(same){ load(false); restoreDrafts(); }
+      }, ()=>{ delete rpExtraLoading[key]; });
+    }
+    { const b=document.getElementById('rpBtn'); if(b) b.disabled=pending; }
+    if(fromChange && r) delete drafts[cid+'|rp_note'];
     const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.value=(v==null?'':v); };
     if(r){ set('rp_meetings',r.meetings);set('rp_instant',r.instant_close);set('rp_closed',r.closed);
-      PIPE.forEach(p=>set('rp_'+p[0],r[p[0]])); set('rp_note',r.note);
+      PIPE.forEach(p=>set('rp_'+p[0],r[p[0]]));
+      // 仕入れコース：列が無い間はメモ末尾「仕入れコース 提案n／成約n」に保存しているので、そこから戻す（再送信でメモに二重に足さない）
+      let note=r.note||'', sp=r.shiire_proposed, sc=r.shiire_closed; const m=note.match(SHIIRE_NOTE_RE);
+      if(m){ note=note.replace(SHIIRE_NOTE_RE,''); if(!n(sp)&&!n(sc)){ sp=m[1]; sc=m[2]; } }
+      set('rp_note',note); set('rp_shiire_proposed',sp); set('rp_shiire_closed',sc);
       document.getElementById('rpHint').textContent='この日は報告済み。送信で上書きします。'; return; }
     // 手入力が無い日: セールス管理シートの当日実績（_day_<cid>_<dd> 合成行）を自動入力
     const dd=(date||'').slice(8,10); const dy=(date||'').slice(0,7)===curYM()? mstats['_day_'+cid+'_'+dd] : null;
@@ -1039,13 +1337,16 @@ function fillForm(cid){
       document.getElementById('rpHint').textContent='セールス管理シートから自動入力しました（面談'+n(dy.meetings)+'・成約'+n(dy.closed)+'）。口頭合意欄にはローン申請中も含めています。確認して送信してください。';
     } else {
       ['rp_meetings','rp_instant','rp_closed',...PIPE.map(p=>'rp_'+p[0])].forEach(id=>set(id,''));
-      document.getElementById('rpHint').textContent=(date||'').slice(0,7)===curYM()?'この日はシート上の面談実施がありません。':'';
+      document.getElementById('rpHint').textContent=pending?'この日の報告を読み込み中…（読み込むまで送信できません）':(date||'').slice(0,7)===curYM()?'この日はシート上の面談実施がありません。':'';
     }
+    // 仕入れコース：その日の面談報告（仕入れコース欄）から数えて自動入力（提案数＝提案済み＋成約。後から提案した分は提案した日で数える）
+    const t=shiireDayCounts(cid,date);
+    set('rp_shiire_proposed', t.p||''); set('rp_shiire_closed', t.c||'');
   };
-  dEl.onchange=load; dEl.onfocus=()=>editing=true; dEl.onblur=()=>editing=false;
-  ['rp_meetings','rp_instant','rp_closed','rp_note',...PIPE.map(p=>'rp_'+p[0])].forEach(id=>{
+  dEl.onchange=()=>load(true); dEl.onfocus=()=>editing=true; dEl.onblur=()=>editing=false;
+  ['rp_meetings','rp_instant','rp_closed','rp_note','rp_shiire_proposed','rp_shiire_closed',...PIPE.map(p=>'rp_'+p[0])].forEach(id=>{
     const e=document.getElementById(id); if(e){ e.onfocus=()=>editing=true; e.onblur=()=>editing=false; } });
-  load();
+  load(false);
 }
 
 // ============================================================
@@ -1056,46 +1357,123 @@ async function submitReport(cid){
   const g=id=>n(document.getElementById(id).value);
   const row={ closer_id:cid, report_date:document.getElementById('rp_date').value,
     meetings:g('rp_meetings'), instant_close:g('rp_instant'), closed:g('rp_closed'),
+    shiire_proposed:g('rp_shiire_proposed'), shiire_closed:g('rp_shiire_closed'),
     note:(document.getElementById('rp_note').value||'').trim(), updated_at:new Date().toISOString() };
   PIPE.forEach(p=>row[p[0]]=g('rp_'+p[0]));
-  const btn=document.getElementById('rpBtn'), msg=document.getElementById('rpMsg');
-  btn.disabled=true; btn.textContent='送信中…'; msg.textContent='';
-  const {error}=await sb.from('sc_reports').upsert(row,{onConflict:'closer_id,report_date'});
+  const btn=document.getElementById('rpBtn'); if(btn.disabled) return;
+  btn.disabled=true; btn.textContent='送信中…'; showMsg('rpMsg','');
+  let {error}=await sb.from('sc_reports').upsert(row,{onConflict:'closer_id,report_date'});
+  if(error && isShiireColErr(error)){ // 仕入れコースの列が未作成 → 2項目を外し、メモ末尾に書き足して保存
+    shiireCols.reports=false;
+    const fb=Object.assign({},row); delete fb.shiire_proposed; delete fb.shiire_closed;
+    if(row.shiire_proposed||row.shiire_closed) fb.note=(fb.note?fb.note+'\n':'')+'仕入れコース 提案'+row.shiire_proposed+'／成約'+row.shiire_closed;
+    ({error}=await sb.from('sc_reports').upsert(fb,{onConflict:'closer_id,report_date'}));
+  } else if(!error) shiireCols.reports=true;
   btn.disabled=false; btn.textContent='報告を送信';
-  if(error){ msg.className='msg err'; msg.textContent='保存エラー：'+error.message; return; }
-  editing=false; clearDrafts('rp_');
-  msg.className='msg ok'; msg.textContent='保存しました。';
-  postToSlack(cid,row).then(r=>{ if(r===true) msg.textContent='保存＆Slack投稿しました。';
-    else if(r==='off') msg.textContent='保存しました（Slack連携は未設定）。';
-    else msg.textContent='保存しました（Slack投稿は失敗：'+r+'）。'; });
+  if(error){ showMsg('rpMsg','保存エラー：'+error.message,'err'); return; }
+  editing=false; clearDrafts('rp_'); delete rpExtra[cid+'|'+row.report_date]; // 今月以外の日：次に開いた時は保存後の内容を読み直す
+  showMsg('rpMsg','保存しました。','ok');
+  postToSlack(cid,row).then(r=>{ if(r===true) showMsg('rpMsg','保存＆Slack投稿しました。','ok');
+    else if(r==='off') showMsg('rpMsg','保存しました（Slack連携は未設定）。','ok');
+    else showMsg('rpMsg','保存しました（Slack投稿は失敗：'+r+'）。','ok'); });
   await loadAll();
 }
 async function setTarget(cid){
   if(!isLead()) return;
   const val=n(document.getElementById('tg_val').value);
   const {error}=await sb.from('sc_targets').upsert({closer_id:cid,ym:curYM(),target_deals:val,updated_at:new Date().toISOString()},{onConflict:'closer_id,ym'});
-  const msg=document.getElementById('tgMsg');
-  if(error){ msg.className='msg err'; msg.textContent='保存エラー：'+error.message; }
-  else { msg.className='msg ok'; msg.textContent='目標を保存しました。'; await loadAll(); }
+  if(error){ showMsg('tgMsg','保存エラー：'+error.message,'err'); }
+  else { showMsg('tgMsg','目標を保存しました。','ok'); await loadAll(); }
 }
+let dealBusy=false; // 「追加」の処理中（二度押しで二重登録・二重投稿しない）
 async function addDeal(cid){
-  if(!canEdit(cid)) return;
+  if(!canEdit(cid) || dealBusy) return;
   const cust=(document.getElementById('dl_cust').value||'').trim(); if(!cust){ return; }
   const gv=id=>{ const e=document.getElementById(id); return e?(e.value||'').trim():''; };
-  const row={ closer_id:cid, customer:cust, deal_date:document.getElementById('dl_date').value||null,
-    status:document.getElementById('dl_status').value, memo:gv('dl_memo'),
-    proline_url:gv('dl_proline'), alliance:gv('dl_alliance') };
-  const {error}=await sb.from('sc_deals').insert(row);
-  if(error){ alert('保存エラー：'+error.message); return; }
-  editing=false; clearDrafts('dl_');
-  // ② マーケ07_プロライン運営の面談報告スレへ自動投稿
-  const c=closers.find(x=>x.id===cid)||{};
-  postSlackTo(meetingReportText(row, c.name), c.slack_id||'', 'C0AMCR2SH2Q', '面談後全体報告');
-  ['dl_cust','dl_memo','dl_proline','dl_alliance'].forEach(id=>{const e=document.getElementById(id); if(e)e.value='';});
+  const shSt=gv('dl_shiire')||'未案内';
+  if(shSt==='後日提案' && !gv('dl_shiire_date')){
+    alert('仕入れコースを「後日提案」にしたときは、提案予定日を入れてください。');
+    const e=document.getElementById('dl_shiire_date'); if(e) e.focus(); return; }
+  // 同じ担当の既存の案件（同じ顧客）なら、新しい行を作らずその行を更新する
+  const ex=findExistingDeal(cid, cust, gv('dl_alliance'), gv('dl_proline')), exS=ex?shiireOf(ex):null;
+  const dealDate=document.getElementById('dl_date').value||null;
+  const row={ closer_id:cid, customer:cust, deal_date:dealDate,
+    status:document.getElementById('dl_status').value,
+    memo:gv('dl_memo')||(ex?shiireMemoStrip(ex.memo):''),  // 空欄なら前のメモを残す（移行前の【仕入れコース】行は列へ移すので外す）
+    proline_url:gv('dl_proline')||(ex&&ex.proline_url||''), alliance:gv('dl_alliance')||(ex&&ex.alliance||''),
+    shiire_status:shSt, shiire_plan_date:shSt==='後日提案'?gv('dl_shiire_date'):null,
+    shiire_plan_time:shSt==='後日提案'?(gv('dl_shiire_time')||'未定'):'',
+    shiire_note:SHIIRE_NOTE_ST.indexOf(shSt)>-1?gv('dl_shiire_note'):'' };
+  // 提案日（提案数・成約数を数える日）：提案済み／成約に変わった時だけ付ける。新規は面談日、既存の案件の変更は今日
+  if(shiireIsProposed(shSt)){
+    if(exS && exS.st===shSt){ if(exS.at) row.shiire_at=exS.at; }
+    else row.shiire_at = ex ? todayStr() : (dealDate||todayStr());
+  }
+  const write=r=>ex ? sb.from('sc_deals').update(Object.assign({},r,{updated_at:new Date().toISOString()})).eq('id',ex.id)
+                    : sb.from('sc_deals').insert(r);
+  dealBusy=true; { const b=document.getElementById('dlAddBtn'); if(b) b.disabled=true; }
+  try{
+    let {error}=await write(row);
+    if(error && isShiireColErr(error)){ // 仕入れコースの列が未作成 → 列を外し、メモ先頭に「【仕入れコース】…」（＋提案日）の行を足して保存
+      shiireCols.deals=false;
+      const fb=Object.assign({},row); ['shiire_status','shiire_plan_date','shiire_plan_time','shiire_note','shiire_at'].forEach(k=>delete fb[k]);
+      const line=shiireText(row), at=row.shiire_at||(exS&&exS.st===shSt?exS.at:null), head=[];
+      if(line) head.push('【仕入れコース】'+line); if(line && at && shiireIsProposed(shSt)) head.push('【仕入れコース日】'+at);
+      if(head.length) fb.memo=head.join('\n')+(fb.memo?'\n'+fb.memo:'');
+      ({error}=await write(fb));
+    } else if(!error) shiireCols.deals=true;
+    if(error){ alert('保存エラー：'+error.message); return; }
+    editing=false; clearDrafts('dl_'); dlMatchId=null;
+    // ② マーケ07_プロライン運営の面談報告スレへ自動投稿
+    const c=closers.find(x=>x.id===cid)||{};
+    postSlackTo(meetingReportText(row, c.name), c.slack_id||'', 'C0AMCR2SH2Q', '面談後全体報告');
+    ['dl_cust','dl_memo','dl_proline','dl_alliance','dl_shiire_date','dl_shiire_note'].forEach(id=>{const e=document.getElementById(id); if(e)e.value='';});
+    { const s=document.getElementById('dl_shiire'); if(s){ s.value='未案内'; syncShiireFields(); } }
+    { const h=document.getElementById('dlMatchHint'); if(h) h.textContent=''; }
+    await loadAll();
+  } finally {
+    dealBusy=false; const b=document.getElementById('dlAddBtn'); if(b) b.disabled=false;
+  }
+}
+async function setDealStatus(id,status){ const d=deals.find(x=>x.id===id); if(d&&!canEdit(d.closer_id)) return;
+  const {error}=await sb.from('sc_deals').update({status,updated_at:new Date().toISOString()}).eq('id',id);
+  editing=false; if(error) alert('ステータスを保存できませんでした：'+error.message);
+  await loadAll(); }
+// 一覧の行内で 仕入れコースの状態・予定日・時間帯を変更（patch 例: {shiire_status:'提案済み'}）
+async function setDealShiire(id,patch){
+  const d=deals.find(x=>x.id===id); if(!d||!canEdit(d.closer_id)) return;
+  const cur=shiireOf(d);
+  let p=Object.assign({},patch);
+  if('shiire_status' in patch && patch.shiire_status!==cur.st){
+    if(patch.shiire_status==='後日提案'){ p.shiire_plan_date=addDaysStr(1); p.shiire_plan_time='未定'; } // 既定は明日・未定（すぐ下に予定日の欄が出る）
+    else { p.shiire_plan_date=null; p.shiire_plan_time=''; }  // 後日提案以外 → 古い予定日を残さない
+    if(shiireIsProposed(patch.shiire_status)) p.shiire_at=todayStr(); // 提案した日で数える
+  }
+  // 移行前のメモ記録（【仕入れコース】…）しか無い行：今の状態を列へ移して、メモの記録行は外す（後で古い記録が戻らないように）
+  const memo=String(d.memo||'');
+  if(SHIIRE_MEMO_RE.test(memo) || SHIIRE_AT_RE.test(memo)){
+    p=Object.assign({shiire_status:cur.st, shiire_plan_date:cur.date, shiire_plan_time:cur.time, shiire_note:cur.note}, cur.at?{shiire_at:cur.at}:{}, p, {memo:shiireMemoStrip(memo)});
+  }
+  const st=p.shiire_status!==undefined?p.shiire_status:cur.st, pd=p.shiire_plan_date!==undefined?p.shiire_plan_date:cur.date;
+  if(st==='後日提案' && !/^\d{4}-\d{2}-\d{2}$/.test(pd||'')){
+    alert('「後日提案」は提案予定日を入れてください。'); editing=false; render(); return; }
+  Object.assign(d,p); editing=false; render(); // 先に画面へ反映（後日提案なら予定日・時間帯の欄がすぐ出る）
+  const {error}=await sb.from('sc_deals').update(Object.assign({},p,{updated_at:new Date().toISOString()})).eq('id',id);
+  editing=false;
+  if(error){
+    if(isShiireColErr(error)){ shiireCols.deals=false; alert(isLead()?'仕入れコースの列が未作成です。migrations の SQL を実行してください':'仕入れコースを保存できませんでした。管理者にお知らせください。'); }
+    else alert('保存エラー：'+error.message);
+  }
   await loadAll();
 }
-async function setDealStatus(id,status){ const d=deals.find(x=>x.id===id); if(d&&!canEdit(d.closer_id)) return; await sb.from('sc_deals').update({status,updated_at:new Date().toISOString()}).eq('id',id); await loadAll(); }
-async function delDeal(id){ const d=deals.find(x=>x.id===id); if(d&&!canEdit(d.closer_id)) return; if(!confirm('この案件を削除しますか？')) return; await sb.from('sc_deals').delete().eq('id',id); await loadAll(); }
+async function delDeal(id){ const d=deals.find(x=>x.id===id); if(!d||!canEdit(d.closer_id)) return; if(!confirm('この案件を削除しますか？')) return;
+  // 同じ名前の重複行が残っていると、消したあとにそちらが表に出てくる → まとめて消すか確認（キャンセル＝この行だけ）
+  const dup=dealsAll.filter(x=>x.id!==id && x.closer_id===d.closer_id && normName(x.customer)===normName(d.customer));
+  let ids=[id];
+  if(dup.length && confirm('同じ名前の案件がほかに '+dup.length+' 件あります。すべて削除しますか？')) ids=ids.concat(dup.map(x=>x.id));
+  const {error}=await sb.from('sc_deals').delete().in('id',ids);
+  if(error) alert('削除できませんでした：'+error.message);
+  await loadAll(); }
 
 // ============================================================
 // Slack 連携（GAS Web App 経由）
@@ -1106,7 +1484,8 @@ async function postToSlack(cid,row){
   const pipeTxt=PIPE.filter(p=>n(row[p[0]])>0).map(p=>p[1]+n(row[p[0]])).join('・')||'なし';
   const payload={ closer:c?c.name:cid, date:row.report_date,
     meetings:row.meetings, instant:row.instant_close, closed:row.closed,
-    pipeline:pipeTxt, note:row.note||'', slack_id:c?c.slack_id:'' };
+    pipeline:pipeTxt, shiire_proposed:n(row.shiire_proposed), shiire_closed:n(row.shiire_closed),
+    note:row.note||'', slack_id:c?c.slack_id:'' };
   try{
     // GAS Web App はクロスオリジンで302リダイレクトを返すため no-cors で fire-and-forget
     // （text/plain＝プリフライト不要の単純リクエスト。GAS側で JSON.parse）
@@ -1125,7 +1504,7 @@ async function saveMyTarget(cid){
   if(error){ alert('保存できませんでした: '+error.message); return; }
   targets[cid]=v; render();
 }
-function monthlyReportText(cid, note){
+function monthlyReportText(cid, note, shToday){
   const c=closers.find(x=>x.id===cid)||{}; const st=closerStats(cid);
   const remain=Math.max(0,(st.target||0)-st.closed);
   let t='【セールス報告】'+curYM()+'　'+(c.name||'')+'\n'
@@ -1133,10 +1512,22 @@ function monthlyReportText(cid, note){
     +'口頭合意含む成約 '+(st.verbalClosed!=null?st.verbalClosed:'-')+'件（'+(st.verbalRate!=null?st.verbalRate:'-')+'%）\n'
     +(st.won!=null&&st.won!==st.closed?'今月の入金 '+st.closed+'件（先月面談の今月入金を含む）\n':'')
     +(st.target?('目標 '+st.target+'件 ／ 達成率 '+st.achieve+'% ／ あと '+remain+'件'):'目標 未設定（自分のタブの「今月の目標」で入力できます）');
+  // 仕入れコース（別枠）：今月の面談報告の「仕入れコース」欄から数える（成約数には含めない）。提案・成約は提案した日（無ければ面談日）で数える
+  const inM=s=>String(s||'').slice(0,7)===curYM();
+  const ss=deals.filter(d=>d.closer_id===cid).map(d=>({d:d,s:shiireOf(d)}));
+  const shP=ss.filter(x=>shiireIsProposed(x.s.st) && inM(x.s.at||x.d.deal_date)).length,
+    shC=ss.filter(x=>x.s.st==='仕入れコース成約' && inM(x.s.at||x.d.deal_date)).length,
+    shL=ss.filter(x=>x.s.st==='後日提案' && inM(x.d.deal_date)).length;
+  if(shP||shC||shL) t+='\n仕入れコース（別枠） 提案 '+shP+' / 成約 '+shC+(shL?'（後日提案 '+shL+'件）':'');
+  if(shToday && (shToday.p||shToday.c)) t+='\n本日の仕入れコース 提案 '+shToday.p+'（成約含む） / 成約 '+shToday.c;
   // 決着ベース＝成約÷(成約+失注)。判断待ち込み＝成約÷(成約+失注+口頭合意+判断待ち)。面談7・成約6・判断待ち1なら 100% と 86%
   if(note&&note.trim()) t+='\nネクストアクション：'+note.trim();
   return t;
 }
+// 自動連携モードの報告文：ひとことメモ＋本日の仕入れコース（入力欄の値）を入れる
+function rpAutoText(cid){ const v=id=>{ const e=document.getElementById(id); return e?e.value:''; };
+  return monthlyReportText(cid, v('rp_note2'), {p:n(v('rp_shiire_proposed')), c:n(v('rp_shiire_closed'))}); }
+function updateRpPreview(cid){ const pv=document.getElementById('rpPreview'); if(pv) pv.textContent=rpAutoText(cid); }
 async function postSlackText(text, slackId){
   const url=SUPABASE_CONFIG.slackRelayUrl; if(!url) return 'off';
   try{ await fetch(url,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},
@@ -1153,22 +1544,21 @@ async function postSlackTo(text, slackId, channel, reminderKey){
 // 面談報告テキスト（クローザーの投稿トーンに寄せる）
 function meetingReportText(row, closerName){
   const A={ 'ABCash':'A','famm':'F','SHE':'S' }; const pre=A[row.alliance]||'';
-  let t='【面談報告】'+(pre?pre+'：':'')+row.customer+'さん'+(row.alliance?'（'+row.alliance+'）':'')+(closerName?'／担当：'+closerName:'')+'\n'
+  let t='【面談報告】'+(pre?pre+'：':'')+String(row.customer||'').replace(/(さん|様)$/,'')+'さん'+(row.alliance?'（'+row.alliance+'）':'')+(closerName?'／担当：'+closerName:'')+'\n'
     +'結果：'+row.status;
+  const sh=shiireText(row); if(sh) t+='\n仕入れコース：'+sh; // 未案内は出さない
   if(row.memo) t+='\n'+row.memo;
   if(row.proline_url) t+='\n'+row.proline_url;
   return t;
 }
 async function reportMonthly(cid){
   if(!canEdit(cid)) return;
-  const noteEl=document.getElementById('rp_note2'); const note=noteEl?noteEl.value:'';
   const c=closers.find(x=>x.id===cid)||{};
-  const btn=document.getElementById('rpBtn2'), msg=document.getElementById('rpMsg2');
-  btn.disabled=true; btn.textContent='送信中…'; msg.textContent='';
-  const r=await postSlackText(monthlyReportText(cid,note), c.slack_id||'');
-  btn.disabled=false; btn.textContent='この内容でマーケ03に報告';
-  msg.className='msg '+(r===true?'ok':'err');
-  msg.textContent = r===true?'マーケ03に報告しました。' : (r==='off'?'Slack連携が未設定です。':'投稿失敗：'+r);
+  const btn=document.getElementById('rpBtn2');
+  btn.disabled=true; btn.textContent='送信中…'; showMsg('rpMsg2','');
+  const r=await postSlackText(rpAutoText(cid), c.slack_id||'');
+  const b2=document.getElementById('rpBtn2'); if(b2){ b2.disabled=false; b2.textContent='この内容でマーケ03に報告'; }
+  showMsg('rpMsg2', r===true?'マーケ03に報告しました。' : (r==='off'?'Slack連携が未設定です。':'投稿失敗：'+r), r===true?'ok':'err');
 }
 
 // ============================================================
