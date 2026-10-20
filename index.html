@@ -542,8 +542,13 @@ function closerStats(cid){
 function teamStats(){
   let meetings=0,closed=0,instant=0,target=0,verbalStock=0, lost=0, wait=0, anySheet=false;
   closers.forEach(c=>{ const s=closerStats(c.id); meetings+=s.meetings;closed+=s.closed;instant+=s.instant;target+=s.target;verbalStock+=s.verbalStock; if(s.src==='sheet'){ anySheet=true; lost+=n(s.lost); wait+=n(s.wait);} });
-  const override=n(targets['__team__']); if(override>0) target=override;
-  let targetSrc='board'; if(!target && gbTeamTarget>0){ target=gbTeamTarget; targetSrc='goal'; } // 未入力なら目標ボードのKR3目標
+  // チーム目標の優先順位: 上司の手入力(__team__) > 目標ボードのKR3目標 > クローザー個人目標の合計
+  // （以前は個人目標の合計が最優先で、1人しか入力していない月は「目標5件・達成率520%」のような表示になっていた 2026-10-20）
+  const override=n(targets['__team__']), closersSum=target;
+  let targetSrc='closers';
+  if(override>0){ target=override; targetSrc='team'; }
+  else if(gbTeamTarget>0){ target=gbTeamTarget; targetSrc='goal'; }
+  else target=closersSum;
   const all=mstats['_oc_all'];
   if(all && n(all.meetings)>0){ // チーム合計はシート直読みの _oc_all を正とする（手入力報告の取りこぼしで数字が割れないように）
     const won=n(all.closed), lostA=n(all.p_long), pipe=n(all.p_verbal), waitA=n(all.p_after);
@@ -818,8 +823,8 @@ function renderSummary(){
   h+='<div class="card"><h3><span class="bar"></span>チーム全体　<span class="muted">（'+curYM()+'）</span>'+(hasSync()?'　'+syncBadge():'')+'</h3>'
    +'<div class="sec-sub">'+(hasSync()?'数字はセールス管理シートから自動連携（10分ごと更新）。<b>成約は入金ベース</b>（先月面談の今月入金分を含む）で、目標ボードと同じ数え方です。'+(s.won!=null&&s.won!==s.closed?'今月面談で決まった分は'+s.won+'件。':''):'今月の面談日ベース集計。パイプラインは各クローザーの最新報告の合計。')+'</div>'
    +'<div class="kpis">'
-   +kpiHero('月間 成約', s.closed, s.target?('目標 '+s.target+'件'+(s.targetSrc==='goal'?'（目標ボード）':'')):'目標未入力', s.achieve)
-   +kpi('達成率', (s.target?s.achieve:'—')+'<small>'+(s.target?'%':'')+'</small>', s.target?('目標 '+s.target+'件'+(s.targetSrc==='goal'?'・目標ボードのKR3目標':'')):'クローザー目標が未入力')
+   +kpiHero('月間 成約', s.closed, s.target?('目標 '+s.target+'件'+({goal:'（目標ボード）',team:'（チーム目標・手入力）',closers:'（クローザー目標の合計）'}[s.targetSrc]||'')):'目標未入力', s.achieve)
+   +kpi('達成率', (s.target?s.achieve:'—')+'<small>'+(s.target?'%':'')+'</small>', s.target?('目標 '+s.target+'件'+({goal:'・目標ボードのKR3目標',team:'・上司が入力したチーム目標',closers:'・クローザー目標の合計（目標ボード未設定）'}[s.targetSrc]||'')):'目標が未設定（目標ボードかクローザー目標を入力）')
    +kpi('面談数', s.meetings+'<small>件</small>', s.src==='sheet'?('シート直読み'+(s.blank?'・未記入'+s.blank:'')):('即決 '+s.instant+'件'))
    +kpi('これからの面談（残弾）', (mstats['_sheet_paid']?n(mstats['_sheet_paid'].meetings):'—')+'<small>件</small>', mstats['_sheet_paid']?('今月分。今日あと'+n(mstats['_sheet_paid'].closed)+'・明日以降'+n(mstats['_sheet_paid'].verbal_closed)+(n(mstats['_sheet_paid'].p_verbal)?'／来月の予約 '+n(mstats['_sheet_paid'].p_verbal)+'件は別':'')):'同期待ち')
    +kpi('仕入れコース（別枠）', (mstats['_shiire']?n(mstats['_shiire'].closed):'—')+'<small>件</small>', mstats['_shiire']?('今月の入金 '+(Math.round(n(mstats['_shiire'].target_deals)/1000)/10)+'万円／上の成約数には含みません'):'同期待ち')
