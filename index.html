@@ -310,6 +310,8 @@ let rosterAll=[];  // 名簿管理（上司のみ）：無効の人も含む sc_
 let rpExtra={}, rpExtraLoading={}; // 今月以外の日次報告（日付を選んだ時に1件だけ読む）。キー cid|date
 let gbTeamTarget=0; // 目標ボード(gb_targets)の当月合計。クローザー目標が未入力の月のチーム目標に使う
 let fsRows=[]; // クローザー空き枠（closer-free-slots GAS の合成行 _fs_*）
+let yearStats={}; // 担当者別 成約推移：今年の sc_month_stats _oc_* 行（ym → closer_id → row）
+let ysSelYM='';   // 推移カードで選んでいる月
 // ボードから外すクローザー（くみこ指示 2026-09-08: 永田さんを削除）。DBの active フラグは残っているため、恒久化するなら sc_closers.active=false
 const HIDDEN_CLOSERS=['nagata'];
 function hasSync(){ return Object.keys(mstats).some(k=>k.charAt(0)!=='_'); } // _oc_* は合成行なので除外
@@ -445,6 +447,8 @@ async function loadAll(auto){ // auto=true：6秒ごと／フォーカス時の�
       try{ const {data:ocs}=await sb.from('sc_open_cases').select('*').eq('ym',curYM()); openCases=ocs||[]; }catch(e){ openCases=[]; }
       // 空き枠（翌月分も含むので ym で絞らない）
       try{ const {data:fs}=await sb.from('sc_month_stats').select('*').like('closer_id','_fs_%'); fsRows=fs||[]; }catch(e){ fsRows=[]; }
+      // 年間シリーズ（担当者別 成約推移）: 今年の _oc_* 行。過去月はGASが1日1回バックフィル
+      try{ const {data:ys}=await sb.from('sc_month_stats').select('*').like('closer_id','_oc_%').like('ym',curYM().slice(0,4)+'-%'); yearStats={}; (ys||[]).forEach(x=>{ (yearStats[x.ym]=yearStats[x.ym]||{})[x.closer_id]=x; }); }catch(e){ yearStats={}; }
       syncMeta=mt&&mt.data||null;
       // 目標ボードの当月目標（チャネル別の合計・AD_*は除く）。チーム目標が未入力ならこれを使う
       try{ const {data:gt}=await sb.from('gb_targets').select('*').eq('ym',curYM()); gbTeamTarget=(gt||[]).filter(r=>!String(r.channel||'').startsWith('AD_')).reduce((a,r)=>a+n(r.target),0); }catch(e){ gbTeamTarget=0; }
@@ -635,6 +639,95 @@ function renderOcCloser(cid){
   return h;
 }
 
+
+// ============================================================
+// 担当者別 成約推移（年間・月別）※sc_month_stats の _oc_* 行を今年ぶん読む（栗山さん要望 2026-10-20）
+// === YEAR CHART START ===
+function ysYear(){ return curYM().slice(0,4); }
+function ysMonths(){ const y=ysYear(), cur=curYM(); const out=[]; for(let m=1;m<=12;m++){ const ym=y+'-'+('0'+m).slice(-2); if(ym>cur) break; out.push(ym); } return out; }
+function ysRow(ym,key){ return (yearStats[ym]||{})['_oc_'+key]||null; }
+function ysVal(ym,key){ const r=ysRow(ym,key); return r?{held:n(r.meetings),won:n(r.closed),pipe:n(r.p_verbal),paid:n(r.target_deals),lost:n(r.p_long),wait:n(r.p_after)}:{held:0,won:0,pipe:0,paid:0,lost:0,wait:0}; }
+function ysSum(key){ const t={held:0,won:0,pipe:0,paid:0,lost:0,wait:0}; ysMonths().forEach(ym=>{ const v=ysVal(ym,key); for(const k in t) t[k]+=v[k]; }); return t; }
+function ysHas(){ return Object.keys(yearStats).length>0; }
+function ysMonthLabel(ym){ return parseInt(ym.slice(5),10)+'月'; }
+function ysRate(won,held){ return held?Math.round(won/held*100):null; }
+function ysPipeTxt(pipe,pre){ return pipe?'<span style="color:#b56a7c">'+(pre||'+')+pipe+'</span>':''; }
+// 縦棒: items=[{label, won, pipe, sub, hl}]  濃=成約 / 淡=口頭合意・ローン申請中
+function ysBarsV(items, opt){
+  opt=opt||{}; const bw0=opt.bw||58, W=Math.max(320, items.length*bw0+16), H=opt.h||190, top=28, bottom=opt.bottom||36, left=8;
+  const max=Math.max(1, ...items.map(i=>i.won+i.pipe)); const ih=H-top-bottom; const bw=(W-left*2)/Math.max(1,items.length);
+  let s='<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+esc(opt.aria||'')+'" style="width:100%;max-width:'+W+'px;height:auto;display:block;font-family:inherit">';
+  [0.5,1].forEach(f=>{ const y=(top+ih-ih*f).toFixed(1); s+='<line x1="'+left+'" y1="'+y+'" x2="'+(W-left)+'" y2="'+y+'" stroke="#e4ecf5" stroke-width="1"/>'; });
+  s+='<line x1="'+left+'" y1="'+(top+ih).toFixed(1)+'" x2="'+(W-left)+'" y2="'+(top+ih).toFixed(1)+'" stroke="#cfdbe9" stroke-width="1"/>';
+  items.forEach((it,i)=>{ const x=left+i*bw+bw*0.2, w=bw*0.6; const hw=ih*it.won/max, hp=ih*it.pipe/max; const yw=top+ih-hw, yp=yw-hp;
+    if(it.pipe>0) s+='<rect x="'+x.toFixed(1)+'" y="'+yp.toFixed(1)+'" width="'+w.toFixed(1)+'" height="'+hp.toFixed(1)+'" fill="#f3c9d2" rx="2"/>';
+    if(it.won>0) s+='<rect x="'+x.toFixed(1)+'" y="'+yw.toFixed(1)+'" width="'+w.toFixed(1)+'" height="'+hw.toFixed(1)+'" fill="'+(it.hl?'#2b4d78':'#1f3a5f')+'" rx="2"/>';
+    const tot=it.won+it.pipe, ty=((tot>0?yp:top+ih)-5).toFixed(1);
+    s+='<text x="'+(x+w/2).toFixed(1)+'" y="'+ty+'" text-anchor="middle" font-size="12" font-weight="700" fill="#25303f">'+it.won+(it.pipe?'<tspan font-weight="400" fill="#b56a7c">+'+it.pipe+'</tspan>':'')+'</text>';
+    s+='<text x="'+(x+w/2).toFixed(1)+'" y="'+(top+ih+15)+'" text-anchor="middle" font-size="11.5" font-weight="'+(it.hl?'700':'400')+'" fill="#25303f">'+esc(it.label)+'</text>';
+    if(it.sub) s+='<text x="'+(x+w/2).toFixed(1)+'" y="'+(top+ih+29)+'" text-anchor="middle" font-size="10.5" fill="#6b7a8d">'+esc(it.sub)+'</text>';
+  });
+  return s+'</svg>';
+}
+// 横棒（年間 担当者別）: items=[{label, won, pipe, sub}]
+function ysBarsH(items, opt){
+  opt=opt||{}; const W=640, rowH=30, top=6, labW=96, valW=150; const H=top*2+items.length*rowH;
+  const max=Math.max(1, ...items.map(i=>i.won+i.pipe)); const bwMax=W-labW-valW-8;
+  let s='<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+esc(opt.aria||'')+'" style="width:100%;max-width:'+W+'px;height:auto;display:block;font-family:inherit">';
+  items.forEach((it,i)=>{ const y=top+i*rowH, bh=18, by=y+6; const ww=bwMax*it.won/max, wp=bwMax*it.pipe/max; const x0=labW;
+    s+='<text x="'+(labW-8)+'" y="'+(by+13)+'" text-anchor="end" font-size="12.5" fill="#25303f">'+esc(it.label)+'</text>';
+    if(it.won>0) s+='<rect x="'+x0+'" y="'+by+'" width="'+ww.toFixed(1)+'" height="'+bh+'" fill="#1f3a5f" rx="3"/>';
+    if(it.pipe>0) s+='<rect x="'+(x0+ww).toFixed(1)+'" y="'+by+'" width="'+wp.toFixed(1)+'" height="'+bh+'" fill="#f3c9d2" rx="3"/>';
+    s+='<text x="'+(x0+ww+wp+8).toFixed(1)+'" y="'+(by+13)+'" font-size="12.5" font-weight="700" fill="#25303f">'+it.won+'件'+(it.pipe?'<tspan font-weight="400" fill="#b56a7c"> ＋'+it.pipe+'</tspan>':'')+(it.sub?'<tspan font-weight="400" fill="#6b7a8d"> '+esc(it.sub)+'</tspan>':'')+'</text>';
+  });
+  return s+'</svg>';
+}
+function ysLegend(){ return '<div class="legend" style="font-size:12px;color:var(--sub);margin:4px 0 8px"><span style="display:inline-block;width:12px;height:12px;background:#1f3a5f;border-radius:3px;vertical-align:-2px"></span> 成約（その月の面談で決まった数）　<span style="display:inline-block;width:12px;height:12px;background:#f3c9d2;border-radius:3px;vertical-align:-2px"></span> ＋口頭合意・ローン申請中（まだ入金前）</div>'; }
+function ysSetMonth(v){ ysSelYM=v; editing=false; render(); }
+function ysSelect(sel){ return '<select onchange="ysSetMonth(this.value)" onfocus="editing=true" onblur="editing=false" style="padding:6px 8px;border:1px solid #d5e0ee;border-radius:8px;font-size:14px">'+ysMonths().map(ym=>'<option value="'+ym+'"'+(ym===sel?' selected':'')+'>'+ysYear()+'年'+ysMonthLabel(ym)+'</option>').join('')+'</select>'; }
+function ysCell(v, withRate){ if(!v.held) return '<td>—</td>'; return '<td><b>'+v.won+'</b>'+ysPipeTxt(v.pipe)+'<div style="font-size:11px;color:var(--sub)">'+v.held+'面談'+(withRate?'・'+ysRate(v.won,v.held)+'%':'')+'</div></td>'; }
+function ysTable(keys){ // 月×担当（成約＋口頭合意等）。末尾に年間計
+  let h='<div class="scroll" style="margin-top:12px"><table class="tbl"><thead><tr><th class="name">月</th>'+keys.map(k=>'<th>'+esc(k.name)+'</th>').join('')+'<th>チーム</th></tr></thead><tbody>';
+  ysMonths().forEach(ym=>{ h+='<tr><td class="name">'+ysMonthLabel(ym)+'</td>'+keys.map(k=>ysCell(ysVal(ym,k.id),true)).join('')+ysCell(ysVal(ym,'all'),true)+'</tr>'; });
+  h+='<tr style="background:#f4f8fd"><td class="name"><b>年間</b></td>'+keys.map(k=>ysCell(ysSum(k.id),true)).join('')+ysCell(ysSum('all'),true)+'</tr>';
+  return h+'</tbody></table></div>';
+}
+function renderYearTeam(){
+  if(!ysHas() || !closers.length) return '';
+  const months=ysMonths(), y=ysYear(), sel=(ysSelYM && months.indexOf(ysSelYM)>-1)?ysSelYM:curYM();
+  const keys=closers.map(c=>({id:c.id,name:c.name}));
+  const ta=ysSum('all');
+  let h='<div class="card"><h3><span class="bar"></span>担当者別 成約推移　<span class="muted">（'+y+'年・シート直読み）</span></h3>'
+   +'<div class="sec-sub">セールス管理シートの面談結果を月ごとに数えたものです。<b>成約はその月に実施した面談で決まった数</b>（「成約率」と同じ数え方）。入金ベースの月間成約は上のチームKPIです。過去の月は1日1回更新されます。</div>'
+   +ysLegend();
+  const yr=keys.map(k=>{ const t=ysSum(k.id); return {label:k.name, won:t.won, pipe:t.pipe, held:t.held, sub:t.held?('／'+t.held+'面談・'+ysRate(t.won,t.held)+'%'):''}; }).filter(x=>x.held>0).sort((a,b)=>(b.won-a.won)||(b.pipe-a.pipe));
+  h+='<div class="grp">年間（1月〜'+ysMonthLabel(curYM())+'）　チーム合計 <b>'+ta.won+'</b>件'+ysPipeTxt(ta.pipe,'＋')+'／'+ta.held+'面談'+(ta.held?'・'+ysRate(ta.won,ta.held)+'%':'')+'</div>';
+  h+= yr.length ? ysBarsH(yr,{aria:y+'年の担当者別 年間成約数'}) : '<div class="empty">まだ今年の面談結果がありません。</div>';
+  h+='<div class="grp" style="margin-top:14px">月別（チーム合計）</div><div class="scroll">'
+   +ysBarsV(months.map(ym=>{ const v=ysVal(ym,'all'); return {label:ysMonthLabel(ym), won:v.won, pipe:v.pipe, sub:v.held?v.held+'面談':'', hl:ym===sel}; }),{aria:y+'年の月別 チーム成約数',bw:56,h:200})+'</div>';
+  h+='<div class="grp" style="margin-top:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">月を選んで担当者別に見る '+ysSelect(sel)+'</div>';
+  const mo=keys.map(k=>{ const v=ysVal(sel,k.id); return {label:k.name, won:v.won, pipe:v.pipe, held:v.held, sub:v.held?(v.held+'面談・'+ysRate(v.won,v.held)+'%'):''}; }).filter(x=>x.held>0);
+  h+='<div class="scroll">'+(mo.length ? ysBarsV(mo,{aria:ysMonthLabel(sel)+'の担当者別 成約数',bw:78,h:210,bottom:46}) : '<div class="empty">'+ysMonthLabel(sel)+'の実施面談はありません。</div>')+'</div>';
+  h+=ysTable(keys);
+  return h+'</div>';
+}
+function renderYearCloser(cid){
+  if(!ysHas()) return '';
+  const c=closers.find(x=>x.id===cid)||{}, months=ysMonths(), y=ysYear(), t=ysSum(cid), ta=ysSum('all');
+  let h='<div class="card"><h3><span class="bar"></span>'+esc(c.name||'')+'さんの成約推移　<span class="muted">（'+y+'年・シート直読み）</span></h3>'
+   +'<div class="sec-sub">成約はその月に実施した面談で決まった数（「成約率」と同じ数え方）。過去の月は1日1回更新されます。</div>'
+   +'<div class="kpis">'
+   +kpi('年間 成約', t.won+'<small>件</small>', '1月〜'+ysMonthLabel(curYM())+'・チーム '+ta.won+'件')
+   +kpi('年間 面談数', t.held+'<small>件</small>', 'チーム '+ta.held+'件')
+   +kpi('年間 成約率（対実施）', (t.held?ysRate(t.won,t.held):'—')+'<small>'+(t.held?'%':'')+'</small>', 'チーム '+(ta.held?ysRate(ta.won,ta.held)+'%':'—'))
+   +kpiPink('口頭合意・ローン申請中', t.pipe+'<small>件</small>', '今年の面談でまだ入金前')
+   +'</div>'+ysLegend()
+   +'<div class="scroll">'+ysBarsV(months.map(ym=>{ const v=ysVal(ym,cid); return {label:ysMonthLabel(ym), won:v.won, pipe:v.pipe, sub:v.held?v.held+'面談':'', hl:ym===curYM()}; }),{aria:y+'年の月別 成約数（'+(c.name||'')+'）',bw:56,h:200})+'</div>'
+   +ysTable([{id:cid,name:c.name||''}]);
+  return h+'</div>';
+}
+// === YEAR CHART END ===
+
 // ============================================================
 // タブ
 // ============================================================
@@ -739,6 +832,8 @@ function renderSummary(){
   h+=renderFreeSlots(null);
   // 今月の成約率（シート直読み・両方の定義）
   h+=renderOcTeam();
+  // 担当者別 成約推移（年間・月別）
+  h+=renderYearTeam();
   // 面談予定（プロライン予約・チーム全員）
   h+=renderAppointments(null);
   // 月間目標の設定パネル（上司=森川・清水のみ表示）
@@ -1162,6 +1257,7 @@ function renderCloser(cid){
   // 今月の成約率（シート直読み・両方の定義）
   h+=renderFreeSlots(cid);
   h+=renderOcCloser(cid);
+  h+=renderYearCloser(cid);
   // 面談予定（この人のプロライン予約）
   h+=renderAppointments(cid);
 
