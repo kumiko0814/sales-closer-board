@@ -671,7 +671,7 @@ function ysBarsV(items, opt){
 }
 // 横棒（年間 担当者別）: items=[{label, won, pipe, sub}]
 function ysBarsH(items, opt){
-  opt=opt||{}; const W=440, rowH=30, top=6, labW=64, valW=150; const H=top*2+items.length*rowH;  // 440幅＝スマホでも縮小率0.8程度で読める
+  opt=opt||{}; const W=440, rowH=30, top=6, labW=64, valW=176; const H=top*2+items.length*rowH;  // 440幅＝スマホでも縮小率0.8程度で読める
   const max=Math.max(1, ...items.map(i=>i.won+i.pipe)); const bwMax=W-labW-valW-8;
   let s='<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+esc(opt.aria||'')+'" style="width:100%;max-width:'+W+'px;height:auto;display:block;font-family:inherit">';
   items.forEach((it,i)=>{ const y=top+i*rowH, bh=18, by=y+6; const ww=bwMax*it.won/max, wp=bwMax*it.pipe/max; const x0=labW;
@@ -700,7 +700,7 @@ function renderYearTeam(){
   let h='<div class="card"><h3><span class="bar"></span>担当者別 成約推移　<span class="muted">（'+y+'年・シート直読み）</span></h3>'
    +'<div class="sec-sub">セールス管理シートの面談結果を月ごとに数えたものです。<b>成約はその月に実施した面談で決まった数</b>（「成約率」と同じ数え方）。入金ベースの月間成約は上のチームKPIです。過去の月は1日1回更新されます。</div>'
    +ysLegend();
-  const yr=keys.map(k=>{ const t=ysSum(k.id); return {label:k.name, won:t.won, pipe:t.pipe, held:t.held, sub:t.held?('／'+t.held+'面談・'+ysRate(t.won,t.held)+'%'):''}; }).filter(x=>x.held>0).sort((a,b)=>(b.won-a.won)||(b.pipe-a.pipe));
+  const yr=keys.map(k=>{ const t=ysSum(k.id); return {label:k.name, won:t.won, pipe:t.pipe, held:t.held, sub:t.held?('／'+t.held+'面談 '+ysRate(t.won,t.held)+'%'):''}; }).filter(x=>x.held>0).sort((a,b)=>(b.won-a.won)||(b.pipe-a.pipe));
   h+='<div class="grp">年間（1月〜'+ysMonthLabel(curYM())+'）　チーム合計 <b>'+ta.won+'</b>件'+ysPipeTxt(ta.pipe,'＋')+'／'+ta.held+'面談'+(ta.held?'・'+ysRate(ta.won,ta.held)+'%':'')+'</div>';
   h+= yr.length ? ysBarsH(yr,{aria:y+'年の担当者別 年間成約数'}) : '<div class="empty">まだ今年の面談結果がありません。</div>';
   h+='<div class="grp" style="margin-top:14px">月別（チーム合計）</div><div class="scroll">'
