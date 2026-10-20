@@ -656,7 +656,7 @@ function ysPipeTxt(pipe,pre){ return pipe?'<span style="color:#b56a7c">'+(pre||'
 function ysBarsV(items, opt){
   opt=opt||{}; const bw0=opt.bw||58, W=Math.max(320, items.length*bw0+16), H=opt.h||190, top=28, bottom=opt.bottom||36, left=8;
   const max=Math.max(1, ...items.map(i=>i.won+i.pipe)); const ih=H-top-bottom; const bw=(W-left*2)/Math.max(1,items.length);
-  let s='<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+esc(opt.aria||'')+'" style="width:100%;max-width:'+W+'px;height:auto;display:block;font-family:inherit">';
+  let s='<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+esc(opt.aria||'')+'" style="width:100%;min-width:'+W+'px;max-width:'+W+'px;height:auto;display:block;font-family:inherit">';
   [0.5,1].forEach(f=>{ const y=(top+ih-ih*f).toFixed(1); s+='<line x1="'+left+'" y1="'+y+'" x2="'+(W-left)+'" y2="'+y+'" stroke="#e4ecf5" stroke-width="1"/>'; });
   s+='<line x1="'+left+'" y1="'+(top+ih).toFixed(1)+'" x2="'+(W-left)+'" y2="'+(top+ih).toFixed(1)+'" stroke="#cfdbe9" stroke-width="1"/>';
   items.forEach((it,i)=>{ const x=left+i*bw+bw*0.2, w=bw*0.6; const hw=ih*it.won/max, hp=ih*it.pipe/max; const yw=top+ih-hw, yp=yw-hp;
@@ -671,7 +671,7 @@ function ysBarsV(items, opt){
 }
 // 横棒（年間 担当者別）: items=[{label, won, pipe, sub}]
 function ysBarsH(items, opt){
-  opt=opt||{}; const W=640, rowH=30, top=6, labW=96, valW=150; const H=top*2+items.length*rowH;
+  opt=opt||{}; const W=440, rowH=30, top=6, labW=64, valW=150; const H=top*2+items.length*rowH;  // 440幅＝スマホでも縮小率0.8程度で読める
   const max=Math.max(1, ...items.map(i=>i.won+i.pipe)); const bwMax=W-labW-valW-8;
   let s='<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+esc(opt.aria||'')+'" style="width:100%;max-width:'+W+'px;height:auto;display:block;font-family:inherit">';
   items.forEach((it,i)=>{ const y=top+i*rowH, bh=18, by=y+6; const ww=bwMax*it.won/max, wp=bwMax*it.pipe/max; const x0=labW;
